@@ -64,7 +64,7 @@ trait AutoSet
             $dbColumnTypes[$column['name']]['type'] = trim(preg_replace('/\(\d+\)(.*)/i', '', $column_type));
             $dbColumnTypes[$column['name']]['default'] = $column['default'];
         }
-        dump($dbColumnTypes);
+//        dump($dbColumnTypes);
         $this->autoset['db_column_types'] = $dbColumnTypes;
 
         return $dbColumnTypes;
@@ -151,8 +151,8 @@ trait AutoSet
                 return 'time';
 
             case 'json':
-//                return 'table';
-                return backpack_pro() ? 'table' : 'textarea';
+                return 'table';
+//                return backpack_pro() ? 'table' : 'textarea';
 
             default:
                 return 'text';

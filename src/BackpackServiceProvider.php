@@ -4,6 +4,7 @@ namespace Backpack\CRUD;
 
 use Backpack\CRUD\app\Http\Middleware\ThrottlePasswordRecovery;
 use Backpack\CRUD\app\Library\CrudPanel\CrudPanel;
+use Backpack\CRUD\app\Library\Database\DatabaseSchema;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
@@ -63,6 +64,9 @@ class BackpackServiceProvider extends ServiceProvider
             return new CrudPanel($app);
         });
 
+        $this->app->scoped('DatabaseSchema', function ($app) {
+            return new DatabaseSchema();
+        });
         // Bind the widgets collection object to Laravel's service container
         $this->app->singleton('widgets', function ($app) {
             return new Collection();
@@ -127,7 +131,7 @@ class BackpackServiceProvider extends ServiceProvider
         $minimum = array_merge(
             // $backpack_views,
             // $backpack_lang_files,
-            $error_views,
+//            $error_views, // removed??
             $backpack_public_assets,
             $backpack_config_files,
             $backpack_menu_contents_view,
@@ -140,7 +144,7 @@ class BackpackServiceProvider extends ServiceProvider
         $this->publishes($backpack_lang_files, 'lang');
         $this->publishes($backpack_views, 'views');
         $this->publishes($backpack_menu_contents_view, 'menu_contents');
-        $this->publishes($error_views, 'errors');
+//        $this->publishes($error_views, 'errors'); // removed??
         $this->publishes($backpack_public_assets, 'public');
         $this->publishes($backpack_custom_routes_file, 'custom_routes');
         $this->publishes($gravatar_assets, 'gravatar');

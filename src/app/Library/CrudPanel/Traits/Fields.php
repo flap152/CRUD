@@ -4,6 +4,7 @@ namespace Backpack\CRUD\app\Library\CrudPanel\Traits;
 
 use Backpack\CRUD\app\Library\CrudPanel\CrudField;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 
 trait Fields
 {
@@ -20,6 +21,17 @@ trait Fields
      * @return array
      */
     public function fields()
+    {
+ //       return $this->getOperationSetting('fields') ?? [];
+ //       return $this->overwriteFieldNamesFromDotNotationToArray($this->getOperationSetting('fields') ?? []);
+        return $this->getOperationSetting('fields') ?? [];
+    }
+
+    /**
+     * Returns the fields as they are stored inside operation setting, not running the
+     * presentation callbacks like converting the `dot.names` into `dot[names]` for html for example.
+     */
+    public function getCleanStateFields()
     {
         return $this->getOperationSetting('fields') ?? [];
     }
@@ -469,6 +481,15 @@ trait Fields
         return Arr::first($this->fields(), function ($field, $fieldKey) use ($attribute, $value) {
             return isset($field[$attribute]) && $field[$attribute] == $value;
         });
+    }
+
+    /**
+     * The field hold multiple inputs (one field represent multiple model attributes / relations)
+     * eg: date range or checklist dependency.
+     */
+    public function holdsMultipleInputs(string $fieldName): bool
+    {
+        return Str::contains($fieldName, ',');
     }
 
     /**

@@ -41,6 +41,7 @@ trait Read
         $id = $this->getCurrentEntryId();
 
         if ($id === false) {
+            return null;
             return false;
         }
 
