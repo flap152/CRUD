@@ -12,12 +12,13 @@ trait AutoSet
      */
     public function setFromDb($setFields = true, $setColumns = true)
     {
-        if ($this->driverIsSql()) {
+//        if ($this->driverIsSql()) {
             $this->getDbColumnTypes();
-        }
+//        }
 
         array_map(function ($field) use ($setFields, $setColumns) {
-            if ($setFields && ! isset($this->fields()[$field])) {
+//            if ($setFields && ! isset($this->fields()[$field])) {
+            if ($setFields && ! isset($this->getCleanStateFields()[$field])) {
                 $this->addField([
                     'name'       => $field,
                     'label'      => $this->makeLabel($field),
@@ -50,16 +51,20 @@ trait AutoSet
      */
     public function getDbColumnTypes()
     {
-        $this->setDoctrineTypesMapping();
+//        $this->setDoctrineTypesMapping();
 
         $dbColumnTypes = [];
 
-        foreach ($this->getDbTableColumns() as $key => $column) {
-            $column_type = $column->getType()->getName();
-            $dbColumnTypes[$column->getName()]['type'] = trim(preg_replace('/\(\d+\)(.*)/i', '', $column_type));
-            $dbColumnTypes[$column->getName()]['default'] = $column->getDefault();
+        if (! $this->driverIsSql()) {
+            return $dbColumnTypes;
         }
-
+        // dd($this->getDbTableColumns());
+        foreach ($this->getDbTableColumns() as $key => $column) {
+            $column_type = $column['type_name'];
+            $dbColumnTypes[$column['name']]['type'] = trim(preg_replace('/\(\d+\)(.*)/i', '', $column_type));
+            $dbColumnTypes[$column['name']]['default'] = $column['default'];
+        }
+        dump($dbColumnTypes);
         $this->autoset['db_column_types'] = $dbColumnTypes;
 
         return $dbColumnTypes;
@@ -76,11 +81,7 @@ trait AutoSet
             return $this->autoset['table_columns'];
         }
 
-        $conn = $this->model->getConnection();
-        $table = $conn->getTablePrefix().$this->model->getTable();
-        $columns = $conn->getDoctrineSchemaManager()->listTableColumns($table);
-
-        $this->autoset['table_columns'] = $columns;
+        $this->autoset['table_columns'] = $this->model::getDbTableSchema()->getColumns();
 
         return $this->autoset['table_columns'];
     }
@@ -101,7 +102,7 @@ trait AutoSet
             return 'email';
         }
 
-        if (is_array($fieldName)) {
+        if ($this->holdsMultipleInputs($fieldName)) {
             return 'text'; // not because it's right, but because we don't know what it is
         }
 
@@ -150,7 +151,8 @@ trait AutoSet
                 return 'time';
 
             case 'json':
-                return 'table';
+//                return 'table';
+                return backpack_pro() ? 'table' : 'textarea';
 
             default:
                 return 'text';
@@ -220,8 +222,7 @@ trait AutoSet
             $columns = $fillable;
         } else {
             // Automatically-set columns should be both in the database, and in the $fillable variable on the Eloquent Model
-            $columns = $this->model->getConnection()->getSchemaBuilder()->getColumnListing($this->model->getTable());
-
+            $columns = $this->model::getDbTableSchema()->getColumnsNames();
             if (! empty($fillable)) {
                 $columns = array_intersect($columns, $fillable);
             }

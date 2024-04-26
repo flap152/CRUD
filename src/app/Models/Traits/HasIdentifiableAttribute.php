@@ -22,7 +22,7 @@ trait HasIdentifiableAttribute
             return $this->identifiableAttribute;
         }
 
-        return static::guessIdentifiableColumnName();
+        return $this->guessIdentifiableColumnName();
     }
 
     /**
@@ -30,13 +30,11 @@ trait HasIdentifiableAttribute
      *
      * @return string The name of the column in the database that is most likely to be a good indentifying attribute.
      */
-    private static function guessIdentifiableColumnName()
+    private function guessIdentifiableColumnName()
     {
-        $instance = new static();
-        $conn = $instance->getConnectionWithExtraTypeMappings();
-        $table = $instance->getTableWithPrefix();
-        $columns = $conn->getDoctrineSchemaManager()->listTableColumns($table);
-        $indexes = $conn->getDoctrineSchemaManager()->listTableIndexes($table);
+        $schema = app('DatabaseSchema')->getForTable($this->getConnection()->getName(), $this->getTableWithPrefix());
+
+        $columns = $schema;
         $columnsNames = array_keys($columns);
 
         // these column names are sensible defaults for lots of use cases
@@ -50,21 +48,20 @@ trait HasIdentifiableAttribute
             }
         }
 
-        // get indexed columns in database table
-        $indexedColumns = [];
-        foreach ($indexes as $index) {
-            $indexColumns = $index->getColumns();
-            foreach ($indexColumns as $ic) {
-                array_push($indexedColumns, $ic);
-            }
-        }
+//        // get indexed columns in database table
+//        $indexedColumns = [];
+//        foreach ($indexes as $index) {
+//            $indexColumns = $index->getColumns();
+//            foreach ($indexColumns as $ic) {
+//                array_push($indexedColumns, $ic);
+//            }
+//        }
 
         // if none of the sensible defaults exists
         // we get the first column from database
         // that is NOT indexed (usually primary, foreign keys)
         foreach ($columns as $columnName => $columnProperties) {
-            if (! in_array($columnName, $indexedColumns)) {
-
+            if ($columnProperties['index'] === false) {
                 //check for convention "field<_id>" in case developer didn't add foreign key constraints.
                 if (strpos($columnName, '_id') !== false) {
                     continue;

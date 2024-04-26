@@ -3,8 +3,8 @@
 namespace Backpack\CRUD\app\Models\Traits;
 
 use Backpack\CRUD\app\Library\CrudPanel\CrudPanelFacade as CRUD;
-use DB;
-use Illuminate\Database\Eloquent\Model;
+use Backpack\CRUD\app\Library\Database\TableSchema;
+use Illuminate\Support\Facades\DB;
 
 /*
 |--------------------------------------------------------------------------
@@ -13,21 +13,21 @@ use Illuminate\Database\Eloquent\Model;
 */
 trait HasRelationshipFields
 {
-    /**
-     * Register aditional types in doctrine schema manager for the current connection.
-     *
-     * @return DB
-     */
-    public function getConnectionWithExtraTypeMappings()
-    {
-        $conn = DB::connection($this->getConnectionName());
-
-        // register the enum, and jsonb types
-        $conn->getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('enum', 'string');
-        $conn->getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('jsonb', 'json');
-
-        return $conn;
-    }
+//    /**
+//     * Register aditional types in doctrine schema manager for the current connection.
+//     *
+//     * @return DB
+//     */
+//    public function getConnectionWithExtraTypeMappings()
+//    {
+//        $conn = DB::connection($this->getConnectionName());
+//
+//        // register the enum, and jsonb types
+//        $conn->getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('enum', 'string');
+//        $conn->getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('jsonb', 'json');
+//
+//        return $conn;
+//    }
 
     /**
      * Get the model's table name, with the prefix added from the configuration file.
@@ -50,10 +50,11 @@ trait HasRelationshipFields
      */
     public function getColumnType($columnName)
     {
-        $conn = $this->getConnectionWithExtraTypeMappings();
-        $table = $this->getTable();
+        if (! self::isSqlConnection()) {
+            return 'text';
+        }
 
-        return $conn->getSchemaBuilder()->getColumnType($table, $columnName);
+        return self::getDbTableSchema()->getColumnType($columnName);
     }
 
     /**
@@ -62,28 +63,68 @@ trait HasRelationshipFields
      * @param  string  $column_name  The name of the db column.
      * @return bool
      */
-    public static function isColumnNullable($column_name)
+    public static function isColumnNullable($columnName)
     {
-        // create an instance of the model to be able to get the table name
-        $instance = new static();
+        if (! self::isSqlConnection()) {
+            return true;
+        }
 
-        $conn = $instance->getConnectionWithExtraTypeMappings();
+        return self::getDbTableSchema()->columnIsNullable($columnName);
+    }
+
+    /**
+     * Checks if the given column name has default value set.
+     *
+     * @param  string  $columnName  The name of the db column.
+     * @return bool
+     */
+    public static function dbColumnHasDefault($columnName)
+    {
+        if (! self::isSqlConnection()) {
+            return false;
+        }
+
+        return self::getDbTableSchema()->columnHasDefault($columnName);
+    }
+
+    /**
+     * Return the db column default value.
+     *
+     * @param  string  $column_name  The name of the db column.
+     * @return bool
+     */
+    public static function getDbColumnDefault($columnName)
+    {
+        if (! self::isSqlConnection()) {
+            return false;
+        }
+
+        return self::getDbTableSchema()->getColumnDefault($columnName);
+    }
+
+    /**
+     * Return the current model connection and table name.
+     */
+    private static function getConnectionAndTable()
+    {
+        $instance = new static();
+        $conn = $instance->getConnection();
         $table = $instance->getTableWithPrefix();
 
-        // MongoDB columns are alway nullable
-        if (! in_array($conn->getConfig()['driver'], CRUD::getSqlDriverList())) {
-            return true;
+        return [$conn, $table];
         }
 
-        try {
-            // check if the column exists in the database
-            $column = $conn->getDoctrineColumn($table, $column_name);
-            // check for NOT NULL
-            $notNull = $column->getNotnull();
-            // return the value of nullable (aka the inverse of NOT NULL)
-            return ! $notNull;
-        } catch (\Exception $e) {
-            return true;
+    public static function getDbTableSchema()
+    {
+        [$connection, $table] = self::getConnectionAndTable();
+
+        return new TableSchema($connection->getName(), $table);
         }
+
+    private static function isSqlConnection()
+    {
+        $instance = new static();
+
+        return in_array($instance->getConnection()->getConfig()['driver'], CRUD::getSqlDriverList());
     }
 }
