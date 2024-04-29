@@ -4,7 +4,8 @@ namespace Backpack\CRUD\app\Library\Database;
 
 class TableSchema
 {
-    public array $schema;
+    /** @var Doctrine\DBAL\Schema\Table|Backpack\CRUD\app\Library\Database\Table */
+    public $schema;
 
     public function __construct(string $connection, string $table)
     {
@@ -18,12 +19,11 @@ class TableSchema
      */
     public function getColumnsNames()
     {
-        return array_keys($this->schema);
-    }
-
-    public function getColumns()
-    {
-        return $this->schema;
+        return array_values(
+            array_map(function ($item) {
+                return $item->getName();
+            }, $this->getColumns())
+        );
     }
 
     /**
@@ -38,7 +38,9 @@ class TableSchema
             return 'varchar';
         }
 
-        return $this->schema[$columnName]['type'];
+        $column = $this->schema->getColumn($columnName);
+
+        return $column->getType()->getName();
     }
 
     /**
@@ -53,7 +55,7 @@ class TableSchema
             return false;
         }
 
-        return array_key_exists($columnName, $this->schema);
+        return $this->schema->hasColumn($columnName);
     }
 
     /**
@@ -68,7 +70,9 @@ class TableSchema
             return true;
         }
 
-        return $this->schema[$columnName]['nullable'] ?? true;
+        $column = $this->schema->getColumn($columnName);
+
+        return $column->getNotnull() ? false : true;
     }
 
     /**
@@ -83,7 +87,9 @@ class TableSchema
             return false;
         }
 
-        return $this->schema[$columnName]['default'] !== null;
+        $column = $this->schema->getColumn($columnName);
+
+        return $column->getDefault() !== null ? true : false;
     }
 
     /**
@@ -98,7 +104,23 @@ class TableSchema
             return false;
         }
 
-        return $this->schema[$columnName]['default'];
+        $column = $this->schema->getColumn($columnName);
+
+        return $column->getDefault();
+    }
+
+    /**
+     * Get the table schema columns.
+     *
+     * @return array
+     */
+    public function getColumns()
+    {
+        if (! $this->schemaExists()) {
+            return [];
+        }
+
+        return $this->schema->getColumns();
     }
 
     /**
@@ -113,7 +135,7 @@ class TableSchema
             return false;
         }
 
-        return array_key_exists($columnName, $this->schema);
+        return $this->schema->hasColumn($columnName);
     }
 
     /**

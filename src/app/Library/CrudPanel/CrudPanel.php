@@ -37,7 +37,8 @@ use Illuminate\Support\Arr;
 class CrudPanel
 {
     // load all the default CrudPanel features
-    use Create, Read, Search, Update, Delete, Errors, Reorder, Access, Columns, Fields, Query, Buttons, AutoSet, FakeFields, FakeColumns, AutoFocus, Filters, Tabs, Views, Validation, HeadingsAndTitles, Operations, SaveActions, Settings, Relationships;
+    use Create, Read, Search, Update, Delete, /*Input,*/ Errors, Reorder, Access, Columns, Fields, Query, Buttons, AutoSet, FakeFields, FakeColumns, AutoFocus, Filters, Tabs, Views, Validation, HeadingsAndTitles, Operations, SaveActions, Settings, Relationships/*, HasViewNamespaces, MorphRelationships*/;
+
     // allow developers to add their own closures to this object
     use Macroable;
 
@@ -179,7 +180,7 @@ class CrudPanel
      */
     public function setRoute($route)
     {
-        $this->route = $route;
+        $this->route = ltrim($route, '/');
     }
 
     /**
@@ -193,6 +194,8 @@ class CrudPanel
      */
     public function setRouteName($route, $parameters = [])
     {
+        $route = ltrim($route, '.');
+
         $complete_route = $route.'.index';
 
         if (! \Route::has($complete_route)) {

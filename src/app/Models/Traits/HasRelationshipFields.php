@@ -13,21 +13,36 @@ use Illuminate\Support\Facades\DB;
 */
 trait HasRelationshipFields
 {
-//    /**
-//     * Register aditional types in doctrine schema manager for the current connection.
-//     *
-//     * @return DB
-//     */
-//    public function getConnectionWithExtraTypeMappings()
-//    {
-//        $conn = DB::connection($this->getConnectionName());
-//
-//        // register the enum, and jsonb types
-//        $conn->getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('enum', 'string');
-//        $conn->getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping('jsonb', 'json');
-//
-//        return $conn;
-//    }
+    /**
+     * Register aditional types in doctrine schema manager for the current connection.
+     *
+     * @return DB
+     */
+    public function getConnectionWithExtraTypeMappings()
+    {
+        $connection = DB::connection($this->getConnectionName());
+
+        if (! method_exists($connection, 'getDoctrineSchemaManager')) {
+            return $connection;
+        }
+
+        $types = [
+            'enum' => 'string',
+            'jsonb' => 'json',
+        ];
+
+        // only register the extra types in sql databases
+        if (self::isSqlConnection()) {
+            $platform = $connection->getDoctrineSchemaManager()->getDatabasePlatform();
+            foreach ($types as $type_key => $type_value) {
+                if (! $platform->hasDoctrineTypeMappingFor($type_key)) {
+                    $platform->registerDoctrineTypeMapping($type_key, $type_value);
+                }
+            }
+        }
+
+        return $connection;
+    }
 
     /**
      * Get the model's table name, with the prefix added from the configuration file.
@@ -108,7 +123,7 @@ trait HasRelationshipFields
     private static function getConnectionAndTable()
     {
         $instance = new static();
-        $conn = $instance->getConnection();
+        $conn = $instance->getConnectionWithExtraTypeMappings();
         $table = $instance->getTableWithPrefix();
 
         return [$conn, $table];

@@ -7,55 +7,95 @@ use Illuminate\Support\LazyCollection;
 
 final class DatabaseSchema
 {
-    private array $schema;
+    private static $schema;
 
     /**
      * Return the schema for the table.
-     *
-     * @param  string  $connection
-     * @param  string  $table
-     * @return array
      */
-    public function getForTable(string $connection, string $table)
+    public static function getForTable(string $connection, string $table)
     {
-        $this->generateDatabaseSchema($connection, $table);
+        $connection = $connection ?: config('database.default');
 
-        return $this->schema[$connection][$table] ?? [];
+        self::generateDatabaseSchema($connection);
+
+        return self::$schema[$connection][$table] ?? null;
+    }
+
+    public static function getTables(string $connection = null): array
+    {
+        $connection = $connection ?: config('database.default');
+        self::generateDatabaseSchema($connection);
+
+        return self::$schema[$connection] ?? [];
+    }
+
+    public function listTableColumnsNames(string $connection, string $table)
+    {
+        $table = self::getForTable($connection, $table);
+
+        return array_keys($table->getColumns());
+    }
+
+    public function listTableIndexes(string $connection, string $table)
+    {
+        return self::getIndexColumnNames($connection, $table);
+    }
+
+    public function getManager(string $connection = null)
+    {
+        $connection = $connection ?: config('database.default');
+
+        return self::getSchemaManager($connection);
     }
 
     /**
      * Generates and store the database schema.
-     *
-     * @param  string  $connection
-     * @param  string  $table
-     * @return void
      */
-    private function generateDatabaseSchema(string $connection, string $table)
+    private static function generateDatabaseSchema(string $connection)
     {
-        if (! isset($this->schema[$connection])) {
-            $this->schema[$connection] = self::mapTables($connection);
-        } else {
-            // check for a specific table in case it was created after schema had been generated.
-            if (! isset($this->schema[$connection][$table])) {
-                $this->schema[$connection][$table] = self::mapTable($connection, $table);
-            }
+        if (! isset(self::$schema[$connection])) {
+            self::$schema[$connection] = self::mapTables($connection);
         }
     }
 
     /**
      * Map the tables from raw db values into an usable array.
      *
-     *
+     * @param  string  $connection
      * @return array
      */
     private static function mapTables(string $connection)
     {
-        return LazyCollection::make(self::getSchemaManager($connection)->getTables())->mapWithKeys(function ($table, $key) use ($connection) {
-            return [$table['name'] => self::mapTable($connection, $table['name'])];
+        return LazyCollection::make(self::getCreateSchema($connection)->getTables())->mapWithKeys(function ($table, $key) use ($connection) {
+            $tableName = is_array($table) ? $table['name'] : $table->getName();
+
+            if (self::$schema[$connection][$tableName] ?? false) {
+                return [$tableName => self::$schema[$connection][$tableName]];
+            }
+
+            if (is_array($table)) {
+                $table = new Table($tableName, self::mapTableColumns($connection, $tableName));
+            }
+
+            return [$tableName => $table];
         })->toArray();
     }
 
-    private static function mapTable($connection, $table)
+    private static function getIndexColumnNames(string $connection, string $table)
+    {
+        $schemaManager = self::getSchemaManager($connection);
+        $indexes = method_exists($schemaManager, 'listTableIndexes') ? $schemaManager->listTableIndexes($table) : $schemaManager->getIndexes($table);
+
+        $indexes = array_map(function ($index) {
+            return is_array($index) ? $index['columns'] : $index->getColumns();
+        }, $indexes);
+
+        $indexes = \Illuminate\Support\Arr::flatten($indexes);
+
+        return array_unique($indexes);
+    }
+
+    private static function mapTableColumns(string $connection, string $table)
     {
         $indexedColumns = self::getIndexColumnNames($connection, $table);
 
@@ -66,43 +106,41 @@ final class DatabaseSchema
         })->toArray();
     }
 
-    private static function getIndexColumnNames($connection, $table)
+    private static function getCreateSchema(string $connection)
     {
-        $indexedColumns = \Illuminate\Support\Arr::flatten(
-            array_column(
-                self::getSchemaManager($connection)->getIndexes($table), 'columns')
-        );
+        $schemaManager = self::getSchemaManager($connection);
 
-        return array_unique($indexedColumns);
+        return method_exists($schemaManager, 'createSchema') ? $schemaManager->createSchema() : $schemaManager;
     }
 
-    public function getColumns()
+    private static function dbalTypes()
     {
-        return $this->schema;
-    }
-
-    public function getColumnType(string $connection, string $table, string $columnName)
-    {
-        return $this->schema[$connection][$table][$columnName]['type'] ?? 'text';
-    }
-
-    public function columnHasDefault(string $connection, string $table, string $columnName)
-    {
-        return isset($this->schema[$connection][$table][$columnName]['default']);
-    }
-
-    public function columnIsNullable(string $connection, string $table, string $columnName)
-    {
-        return $this->schema[$connection][$table][$columnName]['nullable'] ?? true;
-    }
-
-    public function getColumnDefault(string $connection, string $table, string $columnName)
-    {
-        return $this->schema[$connection][$table][$columnName]['default'] ?? false;
+        return [
+            'enum' => \Doctrine\DBAL\Types\Types::STRING,
+            'jsonb' => \Doctrine\DBAL\Types\Types::JSON,
+            'geometry' => \Doctrine\DBAL\Types\Types::STRING,
+            'point' => \Doctrine\DBAL\Types\Types::STRING,
+            'lineString' => \Doctrine\DBAL\Types\Types::STRING,
+            'polygon' => \Doctrine\DBAL\Types\Types::STRING,
+            'multiPoint' => \Doctrine\DBAL\Types\Types::STRING,
+            'multiLineString' => \Doctrine\DBAL\Types\Types::STRING,
+            'multiPolygon' => \Doctrine\DBAL\Types\Types::STRING,
+            'geometryCollection' => \Doctrine\DBAL\Types\Types::STRING,
+        ];
     }
 
     private static function getSchemaManager(string $connection)
     {
-        return DB::connection($connection)->getSchemaBuilder();
+        $connection = DB::connection($connection);
+
+        if (method_exists($connection, 'getDoctrineSchemaManager')) {
+            foreach (self::dbalTypes() as $key => $value) {
+                $connection->getDoctrineSchemaManager()->getDatabasePlatform()->registerDoctrineTypeMapping($key, $value);
+            }
+
+            return $connection->getDoctrineSchemaManager();
+        }
+
+        return $connection->getSchemaBuilder();
     }
 }

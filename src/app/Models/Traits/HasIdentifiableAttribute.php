@@ -22,7 +22,7 @@ trait HasIdentifiableAttribute
             return $this->identifiableAttribute;
         }
 
-        return $this->guessIdentifiableColumnName();
+        return static::guessIdentifiableColumnName();
     }
 
     /**
@@ -30,12 +30,13 @@ trait HasIdentifiableAttribute
      *
      * @return string The name of the column in the database that is most likely to be a good indentifying attribute.
      */
-    private function guessIdentifiableColumnName()
+    private static function guessIdentifiableColumnName()
     {
-        $schema = app('DatabaseSchema')->getForTable($this->getConnection()->getName(), $this->getTableWithPrefix());
-
-        $columns = $schema;
-        $columnsNames = array_keys($columns);
+        $instance = new static();
+        $connection = $instance->getConnectionWithExtraTypeMappings();
+        $table = $instance->getTableWithPrefix();
+        $columnNames = app('DatabaseSchema')->listTableColumnsNames($connection->getName(), $table);
+        $indexes = app('DatabaseSchema')->listTableIndexes($connection->getName(), $table);
 
         // these column names are sensible defaults for lots of use cases
         $sensibleDefaultNames = ['name', 'title', 'description', 'label'];
@@ -43,7 +44,7 @@ trait HasIdentifiableAttribute
         // if any of the sensibleDefaultNames column exists
         // that's probably a good choice
         foreach ($sensibleDefaultNames as $defaultName) {
-            if (in_array($defaultName, $columnsNames)) {
+            if (in_array($defaultName, $columnNames)) {
                 return $defaultName;
             }
         }
@@ -60,8 +61,8 @@ trait HasIdentifiableAttribute
         // if none of the sensible defaults exists
         // we get the first column from database
         // that is NOT indexed (usually primary, foreign keys)
-        foreach ($columns as $columnName => $columnProperties) {
-            if ($columnProperties['index'] === false) {
+        foreach ($columnNames as $columnName) {
+            if (! in_array($columnName, $indexes)) {
                 //check for convention "field<_id>" in case developer didn't add foreign key constraints.
                 if (strpos($columnName, '_id') !== false) {
                     continue;
@@ -72,6 +73,6 @@ trait HasIdentifiableAttribute
         }
 
         // in case everything fails we just return the first column in database
-        return Arr::first($columnsNames);
+        return Arr::first($columnNames);
     }
 }
