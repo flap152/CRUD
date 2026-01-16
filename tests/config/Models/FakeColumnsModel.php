@@ -1,6 +1,6 @@
 <?php
 
-namespace Unit\CrudPanel\Models;
+namespace Backpack\CRUD\Tests\Config\Models;
 
 use Backpack\CRUD\app\Models\Traits\CrudTrait;
 use Backpack\CRUD\app\Models\Traits\SpatieTranslatable\HasTranslations;
@@ -47,11 +47,11 @@ class FakeColumnsModel extends Model
     ];
 
     protected $casts = [
-        'fake_object'                   => 'object',
-        'fake_object_translatable'      => 'object',
-        'fake_array'                    => 'array',
-        'fake_array_translatable'       => 'array',
-        'fake_assoc_array'              => 'array',
+        'fake_object' => 'object',
+        'fake_object_translatable' => 'object',
+        'fake_array' => 'array',
+        'fake_array_translatable' => 'array',
+        'fake_assoc_array' => 'array',
         'fake_assoc_array_translatable' => 'array',
     ];
 }
