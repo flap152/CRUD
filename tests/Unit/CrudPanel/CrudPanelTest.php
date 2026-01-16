@@ -2,30 +2,31 @@
 
 namespace Backpack\CRUD\Tests\Unit\CrudPanel;
 
-use Backpack\CRUD\Tests\Unit\Models\TestModel;
+use Backpack\CRUD\Tests\config\CrudPanel\BaseCrudPanel;
+use Backpack\CRUD\Tests\config\Models\TestModel;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
  * @covers Backpack\CRUD\app\Library\CrudPanel\CrudPanel
  */
-class CrudPanelTest extends BaseCrudPanelTest
+class CrudPanelTest extends BaseCrudPanel
 {
     public function testSetModelFromModelClass()
     {
         $this->crudPanel->setModel(TestModel::class);
 
-        $this->assertEquals($this->model, $this->crudPanel->model);
+        $this->assertEquals($this->model, get_class($this->crudPanel->model));
         $this->assertInstanceOf(TestModel::class, $this->crudPanel->model);
         $this->assertInstanceOf(Builder::class, $this->crudPanel->query);
     }
 
     public function testSetModelFromModelClassName()
     {
-        $modelClassName = '\Backpack\CRUD\Tests\Unit\Models\TestModel';
+        $modelClassName = '\Backpack\CRUD\Tests\config\Models\TestModel';
 
         $this->crudPanel->setModel($modelClassName);
 
-        $this->assertEquals($this->model, $this->crudPanel->model);
+        $this->assertEquals($this->model, get_class($this->crudPanel->model));
         $this->assertInstanceOf($modelClassName, $this->crudPanel->model);
         $this->assertInstanceOf(Builder::class, $this->crudPanel->query);
     }

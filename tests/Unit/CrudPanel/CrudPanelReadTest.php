@@ -2,17 +2,19 @@
 
 namespace Backpack\CRUD\Tests\Unit\CrudPanel;
 
-use Backpack\CRUD\Tests\Unit\Models\Article;
-use Backpack\CRUD\Tests\Unit\Models\Role;
-use Backpack\CRUD\Tests\Unit\Models\User;
+use Backpack\CRUD\Tests\config\Models\Article;
+use Backpack\CRUD\Tests\config\Models\Role;
+use Backpack\CRUD\Tests\config\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
  * @covers Backpack\CRUD\app\Library\CrudPanel\Traits\Read
+ * @covers Backpack\CRUD\app\Library\CrudPanel\CrudPanel
  */
-class CrudPanelReadTest extends BaseDBCrudPanelTest
+//class CrudPanelReadTest extends BaseDBCrudPanelTest
+class CrudPanelReadTest extends \Backpack\CRUD\Tests\config\CrudPanel\BaseDBCrudPanel
 {
     private $relationshipColumn = [
         'name'      => 'user_id',
@@ -57,21 +59,26 @@ class CrudPanelReadTest extends BaseDBCrudPanelTest
             'name'  => 'content',
             'label' => 'The Content',
             'type'  => 'text',
+//            'entity' => 'FLAP!',
+//            'entity' => false,
         ],
         'metas' => [
             'name'  => 'metas',
             'label' => 'Metas',
             'type'  => 'text',
+//            'entity' => false,
         ],
         'tags' => [
             'name'  => 'tags',
             'label' => 'Tags',
             'type'  => 'text',
+//            'entity' => false,
         ],
         'extras' => [
             'name'  => 'extras',
             'label' => 'Extras',
             'type'  => 'text',
+//            'entity' => false,
         ],
     ];
 
@@ -81,24 +88,28 @@ class CrudPanelReadTest extends BaseDBCrudPanelTest
             'label' => 'The Content',
             'type'  => 'text',
             'value' => 'Some Content',
+//            'entity' => false,
         ],
         'metas' => [
             'name'  => 'metas',
             'label' => 'Metas',
             'type'  => 'text',
             'value' => '{"meta_title":"Meta Title Value","meta_description":"Meta Description Value"}',
+//            'entity' => false,
         ],
         'tags' => [
             'name'  => 'tags',
             'label' => 'Tags',
             'type'  => 'text',
             'value' => '{"tags":["tag1","tag2","tag3"]}',
+//            'entity' => false,
         ],
         'extras' => [
             'name'  => 'extras',
             'label' => 'Extras',
             'type'  => 'text',
             'value' => '{"extra_details":["detail1","detail2","detail3"]}',
+//            'entity' => false,
         ],
         'id' => [
             'name'  => 'id',

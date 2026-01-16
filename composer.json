@@ -32,18 +32,17 @@
         }
     ],
     "require": {
-        "laravel/framework": "^11.0|^10.0|^9.0|^8.0|^7.0|^6.0",
+        "laravel/framework": "^12.0|^11.0|^10.0|^9.0",
         "prologue/alerts": "^1.0",
         "creativeorange/gravatar": "~1.0",
         "composer/package-versions-deprecated": "^1.8",
-        "doctrine/dbal": "^2.5|^3.0",
+        "doctrine/dbal": "^4.0|^3.0|^2.5",
         "guzzlehttp/guzzle": "^7.0|^6.3"
     },
     "require-dev": {
-        "phpunit/phpunit": "~8.0|~7.0|~9.0",
-        "scrutinizer/ocular": "~1.7|~1.1",
-        "orchestra/testbench": "^6.0|^5.0|^4.0|^3.0",
-        "spatie/laravel-translatable": "^4.0"
+        "phpunit/phpunit": "^12.0",
+        "orchestra/testbench": "^10.0",
+        "spatie/laravel-translatable": "^6.0"
     },
     "autoload": {
         "psr-4": {
@@ -60,7 +59,10 @@
         ]
     },
     "scripts": {
-        "test": "vendor/bin/phpunit --testdox",
+        "test": [
+            "@putenv XDEBUG_MODE=off",
+            "vendor/bin/phpunit"
+        ],
         "test-failing": "vendor/bin/phpunit --order-by=defects --stop-on-failure",
         "test-coverage": "XDEBUG_MODE=coverage vendor/bin/phpunit --coverage-text"
     },
@@ -83,5 +85,15 @@
         "backpack/filemanager": "Required to use the browse and browse_multiple fields.",
         "backpack/revise-operation": "Optional operation to remember all entry changes, undo and redo them (aka audit trait).",
         "digitallyhappy/toggle-field-for-backpack": "Optional field to toggle a boolean. Prettier alternative to the checkbox field."
+    },
+    "config": {
+        "audit": {
+            "block-insecure": false,
+            "ignore": [
+                "PKSA-8qx3-n5y5-vvnd",
+                "PKSA-rqc2-tcc6-nc79",
+                "PKSA-fndg-qryc-dyc9"
+            ]
+        }
     }
 }

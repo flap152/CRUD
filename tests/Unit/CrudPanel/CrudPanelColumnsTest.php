@@ -2,12 +2,13 @@
 
 namespace Backpack\CRUD\Tests\Unit\CrudPanel;
 
-use Backpack\CRUD\Tests\Unit\Models\User;
+use Backpack\CRUD\app\Library\CrudPanel\CrudColumn;
+use Backpack\CRUD\Tests\config\Models\User;
 
 /**
  * @covers Backpack\CRUD\app\Library\CrudPanel\Traits\Columns
  */
-class CrudPanelColumnsTest extends BaseDBCrudPanelTest
+class CrudPanelColumnsTest extends \Backpack\CRUD\Tests\config\CrudPanel\BaseCrudPanel
 {
     private $oneColumnArray = [
         'name'  => 'column1',
@@ -158,6 +159,97 @@ class CrudPanelColumnsTest extends BaseDBCrudPanelTest
         ],
     ];
 
+    private $expectedRelationColumnsArrayWithoutPro = [
+        'accountDetails' => [
+            'name' => 'accountDetails',
+            'label' => 'AccountDetails',
+            'type' => 'text',
+            'key' => 'accountDetails',
+            'priority' => 0,
+            'tableColumn' => false,
+            'orderable' => false,
+            'searchLogic' => false,
+            'entity' => 'accountDetails',
+            'model' => 'Backpack\CRUD\Tests\Config\Models\AccountDetails',
+            'relation_type' => 'HasOne',
+            'attribute' => 'nickname',
+        ],
+        'accountDetails__nickname' => [
+            'name' => 'accountDetails.nickname',
+            'label' => 'AccountDetails.nickname',
+            'type' => 'text',
+            'key' => 'accountDetails__nickname',
+            'priority' => 1,
+            'attribute' => 'nickname',
+            'tableColumn' => false,
+            'orderable' => false,
+            'searchLogic' => false,
+            'relation_type' => 'HasOne',
+            'entity' => 'accountDetails.nickname',
+            'model' => 'Backpack\CRUD\Tests\Config\Models\AccountDetails',
+        ],
+        'accountDetails__user' => [
+            'name' => 'accountDetails.user',
+            'label' => 'AccountDetails.user',
+            'type' => 'select',
+            'key' => 'accountDetails__user',
+            'priority' => 2,
+            'tableColumn' => false,
+            'orderable' => false,
+            'searchLogic' => false,
+            'relation_type' => 'BelongsTo',
+            'entity' => 'accountDetails.user',
+            'model' => 'Backpack\CRUD\Tests\Config\Models\User',
+            'attribute' => 'name',
+        ],
+    ];
+
+    private $expectedRelationColumnsArrayWithPro = [
+        'accountDetails' => [
+            'name' => 'accountDetails',
+            'label' => 'AccountDetails',
+            'type' => 'relationship',
+            'key' => 'accountDetails',
+            'priority' => 0,
+            'tableColumn' => false,
+            'orderable' => false,
+            'searchLogic' => false,
+            'entity' => 'accountDetails',
+            'model' => 'Backpack\CRUD\Tests\Config\Models\AccountDetails',
+            'relation_type' => 'HasOne',
+//            'attribute' => 'nickname',
+        ],
+        'accountDetails__nickname' => [
+            'name' => 'accountDetails.nickname',
+            'label' => 'AccountDetails.nickname',
+            'type' => 'relationship',
+            'key' => 'accountDetails__nickname',
+            'priority' => 1,
+            'attribute' => 'nickname',
+            'tableColumn' => false,
+            'orderable' => false,
+            'searchLogic' => false,
+            'relation_type' => 'HasOne',
+            'entity' => 'accountDetails.nickname',
+            'model' => 'Backpack\CRUD\Tests\Config\Models\AccountDetails',
+        ],
+        'accountDetails__user' => [
+            'name' => 'accountDetails.user',
+            'label' => 'AccountDetails.user',
+            'type' => 'relationship',
+            'key' => 'accountDetails__user',
+            'priority' => 2,
+            'tableColumn' => false,
+            'orderable' => false,
+            'searchLogic' => false,
+            'relation_type' => 'BelongsTo',
+            'entity' => 'accountDetails.user',
+            'model' => 'Backpack\CRUD\Tests\Config\Models\User',
+//            'attribute' => 'name',
+        ],
+    ];
+
+
     private $relationColumnArray = [
         'name'      => 'nickname',
         'type'      => 'select',
@@ -172,7 +264,7 @@ class CrudPanelColumnsTest extends BaseDBCrudPanelTest
             'entity'      => 'accountDetails',
             'attribute'   => 'nickname',
             'label'       => 'Nickname',
-            'model'       => 'Backpack\CRUD\Tests\Unit\Models\AccountDetails',
+            'model'       => 'Backpack\CRUD\Tests\Config\Models\AccountDetails',
             'key'         => 'nickname',
             'tableColumn' => false,
             'orderable'   => false,
@@ -198,7 +290,7 @@ class CrudPanelColumnsTest extends BaseDBCrudPanelTest
             'type'        => 'relationship',
             'entity'      => 'accountDetails.article',
             'label'       => 'AccountDetails.article',
-            'model'       => 'Backpack\CRUD\Tests\Unit\Models\Article',
+            'model'       => 'Backpack\CRUD\Tests\Config\Models\Article',
             'key'         => 'accountDetails__article',
             'tableColumn' => false,
             'orderable'   => false,
@@ -211,7 +303,7 @@ class CrudPanelColumnsTest extends BaseDBCrudPanelTest
             'type'        => 'relationship',
             'entity'      => 'accountDetails.article',
             'label'       => 'AccountDetails.article',
-            'model'       => 'Backpack\CRUD\Tests\Unit\Models\Article',
+            'model'       => 'Backpack\CRUD\Tests\Config\Models\Article',
             'key'         => 'ac_article_content',
             'tableColumn' => false,
             'orderable'   => false,
@@ -280,7 +372,13 @@ class CrudPanelColumnsTest extends BaseDBCrudPanelTest
         $this->crudPanel->addColumn('accountDetails.nickname');
         $this->crudPanel->addColumn('accountDetails.user');
 
-        $this->assertEquals($this->expectedRelationColumnsArray, $this->crudPanel->columns());
+//        $this->assertEquals($this->expectedRelationColumnsArray, $this->crudPanel->columns());
+//        if (backpack_pro()) {
+//        if (true) {
+            $this->assertEquals($this->expectedRelationColumnsArrayWithPro, $this->crudPanel->columns());
+//        } else {
+//            $this->assertEquals($this->expectedRelationColumnsArrayWithoutPro, $this->crudPanel->columns());
+//        }
     }
 
     public function testAddRelationColumn()

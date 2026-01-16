@@ -2,6 +2,7 @@
 
 namespace Backpack\CRUD\app\Http\Controllers\Operations;
 
+use Backpack\CRUD\app\Library\CrudPanel\Hooks\Facades\LifecycleHook;
 use Illuminate\Support\Facades\Route;
 
 trait ListOperation
@@ -44,6 +45,10 @@ trait ListOperation
         $this->crud->operation('list', function () {
             $this->crud->loadDefaultOperationSettingsFromConfig();
         });
+            LifecycleHook::hookInto('list:before_setup', function () {
+            $this->crud->loadDefaultOperationSettingsFromConfig();
+            $this->crud->setOperationSetting('datatablesUrl', $this->crud->getRoute());
+        });
     }
 
     /**
@@ -57,6 +62,7 @@ trait ListOperation
 
         $this->data['crud'] = $this->crud;
         $this->data['title'] = $this->crud->getTitle() ?? mb_ucfirst($this->crud->entity_name_plural);
+        $this->data['controller'] = get_class($this);
 
         // load the view from /resources/views/vendor/backpack/crud/ if it exists, otherwise load the one in the package
         return view($this->crud->getListView(), $this->data);

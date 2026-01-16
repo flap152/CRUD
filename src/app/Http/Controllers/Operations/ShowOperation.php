@@ -2,6 +2,7 @@
 
 namespace Backpack\CRUD\app\Http\Controllers\Operations;
 
+use Backpack\CRUD\app\Library\CrudPanel\Hooks\Facades\LifecycleHook;
 use Illuminate\Support\Facades\Route;
 
 trait ShowOperation
@@ -33,12 +34,17 @@ trait ShowOperation
         $this->crud->operation('show', function () {
             $this->crud->loadDefaultOperationSettingsFromConfig();
         });
-
+        LifecycleHook::hookInto('show:before_setup', function () {
+            $this->crud->loadDefaultOperationSettingsFromConfig();
+        });
         $this->crud->operation('list', function () {
             $this->crud->addButton('line', 'show', 'view', 'crud::buttons.show', 'beginning');
         });
+        LifecycleHook::hookInto(['list:before_setup'], function () {
+            $this->crud->addButton('line', 'show', 'view', 'crud::buttons.show', 'beginning');
+        });
 
-        $this->crud->operation(['create', 'update'], function () {
+        LifecycleHook::hookInto(['create:before_setup', 'update:before_setup'], function () {
             $this->crud->addSaveAction([
                 'name' => 'save_and_preview',
                 'visible' => function ($crud) {

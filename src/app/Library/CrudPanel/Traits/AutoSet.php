@@ -4,6 +4,8 @@ namespace Backpack\CRUD\app\Library\CrudPanel\Traits;
 
 trait AutoSet
 {
+    protected $autoset = [];
+
     /**
      * For a simple CRUD Panel, there should be no need to add/define the fields.
      * The public columns in the database will be converted to be fields.
@@ -12,12 +14,9 @@ trait AutoSet
      */
     public function setFromDb($setFields = true, $setColumns = true)
     {
-//        if ($this->driverIsSql()) {
             $this->getDbColumnTypes();
-//        }
 
         array_map(function ($field) use ($setFields, $setColumns) {
-//            if ($setFields && ! isset($this->fields()[$field])) {
             if ($setFields && ! isset($this->getCleanStateFields()[$field])) {
                 $this->addField([
                     'name'       => $field,
@@ -27,6 +26,8 @@ trait AutoSet
                     'type'       => $this->inferFieldTypeFromDbColumnType($field),
                     'values'     => [],
                     'attributes' => [],
+                    'entity'    => false,
+//                    'entity'    => false,
                     'autoset'    => true,
                 ]);
             }
@@ -133,10 +134,11 @@ trait AutoSet
             // break;
 
             case 'boolean':
+            case 'tinyint':
                 return 'boolean';
 
-            case 'tinyint':
-                return 'active';
+//            case 'tinyint':
+//                return 'active';
 
             case 'text':
             case 'mediumtext':
@@ -164,17 +166,30 @@ trait AutoSet
         return 'text';
     }
 
-    // Fix for DBAL not supporting enum
+    /**
+     * Set extra types mapping on model.
+     *
+     * DEPRECATION NOTICE: This method is no longer used and will be removed in future versions of Backpack
+     *
+     * @deprecated
+     */
     public function setDoctrineTypesMapping()
     {
-        $types = ['enum' => 'string'];
-        $platform = $this->getSchema()->getConnection()->getDoctrineSchemaManager()->getDatabasePlatform();
-        foreach ($types as $type_key => $type_value) {
-            if (! $platform->hasDoctrineTypeMappingFor($type_key)) {
-                $platform->registerDoctrineTypeMapping($type_key, $type_value);
-            }
-        }
+        $this->getModel()->getConnectionWithExtraTypeMappings();
     }
+
+
+//    // Fix for DBAL not supporting enum
+//    public function setDoctrineTypesMapping()
+//    {
+//        $types = ['enum' => 'string'];
+//        $platform = $this->getSchema()->getConnection()->getDoctrineSchemaManager()->getDatabasePlatform();
+//        foreach ($types as $type_key => $type_value) {
+//            if (! $platform->hasDoctrineTypeMappingFor($type_key)) {
+//                $platform->registerDoctrineTypeMapping($type_key, $type_value);
+//            }
+//        }
+//    }
 
     /**
      * Turn a database column name or PHP variable into a pretty label to be shown to the user.

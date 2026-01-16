@@ -115,7 +115,7 @@
                 @endforeach
 
                 @if ( $crud->buttons()->where('stack', 'line')->count() )
-                  <th>{{ trans('backpack::crud.actions') }}</th>
+                  <th>{{ trans('backpack::crud.actions') }} YO!</th>
                 @endif
               </tr>
             </tfoot>
@@ -123,7 +123,7 @@
 
           @if ( $crud->buttons()->where('stack', 'bottom')->count() )
           <div id="bottom_buttons" class="d-print-none text-center text-sm-left">
-            @include('crud::inc.button_stack', ['stack' => 'bottom'])
+            @include('crud::inc.button_stack', ['stack' => 'bottom'])Yo2
 
             <div id="datatable_button_stack" class="float-right text-right hidden-xs"></div>
           </div>

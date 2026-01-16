@@ -6,11 +6,12 @@ use Backpack\CRUD\Tests\Unit\Models\Article;
 use Backpack\CRUD\Tests\Unit\Models\User;
 use Faker\Factory;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * @covers Backpack\CRUD\app\Library\CrudPanel\Traits\Create
  */
-class CrudPanelCreateTest extends BaseDBCrudPanelTest
+class CrudPanelCreateTest extends \Backpack\CRUD\Tests\config\CrudPanel\BaseDBCrudPanel
 {
     private $nonRelationshipField = [
         'name'  => 'field1',
@@ -120,7 +121,7 @@ class CrudPanelCreateTest extends BaseDBCrudPanelTest
         $inputData = [
             'name'     => $faker->name,
             'email'    => $faker->safeEmail,
-            'password' => bcrypt($faker->password()),
+            'password' => Hash::make($faker->password()),
         ];
 
         $entry = $this->crudPanel->create($inputData);
@@ -140,7 +141,7 @@ class CrudPanelCreateTest extends BaseDBCrudPanelTest
         $inputData = [
             'name'     => $faker->name,
             'email'    => $faker->safeEmail,
-            'password' => bcrypt($faker->password()),
+            'password' => Hash::make($faker->password()),
             'accountDetails' => [
                 'nickname' => $account_details_nickname,
                 'profile_picture' => 'test.jpg',
@@ -208,7 +209,7 @@ class CrudPanelCreateTest extends BaseDBCrudPanelTest
         $inputData = [
             'name'           => $faker->name,
             'email'          => $faker->safeEmail,
-            'password'       => bcrypt($faker->password()),
+            'password' => Hash::make($faker->password()),
             'remember_token' => null,
             'roles'          => [1, 2],
         ];
@@ -294,7 +295,7 @@ class CrudPanelCreateTest extends BaseDBCrudPanelTest
         $inputData = [
             'name'           => $faker->name,
             'email'          => $faker->safeEmail,
-            'password'       => bcrypt($faker->password()),
+            'password' => Hash::make($faker->password()),
             'remember_token' => null,
             'roles'          => [1, 2],
             'accountDetails' => [
@@ -303,6 +304,7 @@ class CrudPanelCreateTest extends BaseDBCrudPanelTest
             ],
         ];
         $entry = $this->crudPanel->create($inputData);
+        $updateFields = $this->crudPanel->getUpdateFields($entry->id);
         $account_details = $entry->accountDetails()->first();
 
         $this->assertEquals($account_details->nickname, 'i_have_has_one');
@@ -343,10 +345,6 @@ class CrudPanelCreateTest extends BaseDBCrudPanelTest
         $relationFields = $this->crudPanel->getRelationFieldsWithPivot();
 
         $this->assertEmpty($relationFields);
-    }
-
-    public function testCreateOneToOneRelationships()
-    {
     }
 
     public function testSyncPivot()

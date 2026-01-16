@@ -2,6 +2,9 @@
 
 namespace Backpack\CRUD\app\Library\CrudPanel;
 
+use Backpack\CRUD\app\Library\CrudPanel\Traits\Support\MacroableWithAttributes;
+use Illuminate\Support\Traits\Conditionable;
+
 /**
  * Adds fluent syntax to Backpack CRUD Fields.
  *
@@ -28,6 +31,9 @@ namespace Backpack\CRUD\app\Library\CrudPanel;
  */
 class CrudField
 {
+    use MacroableWithAttributes;
+    use Conditionable;
+
     protected $attributes;
 
     public function __construct($name)
@@ -49,7 +55,7 @@ class CrudField
 
     public function crud()
     {
-        return app()->make('crud');
+        return app('crud');
     }
 
     /**
@@ -61,6 +67,23 @@ class CrudField
     public static function name($name)
     {
         return new static($name);
+    }
+
+    /**
+     * When defining the entity, make sure Backpack guesses the relationship attributes if needed.
+     *
+     * @param  string|bool  $entity
+     * @return self
+     */
+    public function entity($entity)
+    {
+        $this->attributes['entity'] = $entity;
+
+        if ($entity !== false) {
+            $this->attributes = $this->crud()->makeSureFieldHasRelationshipAttributes($this->attributes);
+        }
+
+        return $this->save();
     }
 
     /**
@@ -162,6 +185,12 @@ class CrudField
         return $this->save();
     }
 
+
+    public function getAttributes()
+    {
+        return $this->attributes;
+    }
+
     // ---------------
     // PRIVATE METHODS
     // ---------------
@@ -201,11 +230,24 @@ class CrudField
             $this->crud()->modifyField($key, $this->attributes);
         } else {
             $this->crud()->addField($this->attributes);
+            $this->attributes = $this->getFreshAttributes();
         }
 
         return $this;
     }
 
+    /**
+     * Get the fresh attributes for the current field.
+     *
+     * @return array
+     */
+    private function getFreshAttributes()
+    {
+        $key = isset($this->attributes['key']) ? 'key' : 'name';
+        $search = $this->attributes['key'] ?? $this->attributes['name'];
+
+        return $this->crud()->firstFieldWhere($key, $search);
+    }
     // -----------------
     // DEBUGGING METHODS
     // -----------------
@@ -254,6 +296,9 @@ class CrudField
      */
     public function __call($method, $parameters)
     {
+        if (static::hasMacro($method)) {
+            return $this->macroCall($method, $parameters);
+        }
         $this->setAttributeValue($method, $parameters[0]);
 
         return $this->save();

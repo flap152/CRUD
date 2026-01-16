@@ -59,6 +59,20 @@ trait Settings
             return $key;
         });
     }
+    /**
+     * Clear all operation settings
+     */
+    public function clearSettingsXX()
+    {
+        $this->settings = [];
+
+//        $this->model = "\App\Models\Entity"; // what's the namespace for your entity's model
+//        public $route; // what route have you defined for your entity? used for links.
+        $this->entity_name = 'entry'; // what name will show up on the buttons, in singural (ex: Add entity)
+        $this->entity_name_plural = 'entries'; // what name will show up on the buttons, in plural (ex: Delete 5 entities)
+
+        $this->entry = null;
+    }
 
     /**
      * Getter and setter for the settings key-value store.
@@ -149,5 +163,19 @@ trait Settings
                 $this->setOperationSetting($key, $value);
             }
         }
+    }
+    /**
+     * Get the current CRUD operations loaded.
+     *
+     * @return array operation names
+     */
+    private function getAvailableOperationsList(): array
+    {
+        return collect($this->settings)
+            ->keys()
+            ->filter(fn (string $key): bool => str_contains($key, '.access'))
+            ->map(fn (string $key): string => str_replace('.access', '', $key))
+            ->values()
+            ->toArray();
     }
 }

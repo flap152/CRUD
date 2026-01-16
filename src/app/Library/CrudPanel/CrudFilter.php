@@ -4,10 +4,12 @@ namespace Backpack\CRUD\app\Library\CrudPanel;
 
 use Closure;
 use Illuminate\Support\Str;
+use Illuminate\Support\Traits\Conditionable;
 use Symfony\Component\HttpFoundation\ParameterBag;
 
 class CrudFilter
 {
+    use Conditionable;
     public $name; // the name of the filtered variable (db column name)
     public $type = 'select2'; // the name of the filter view that will be loaded
     public $key; //camelCased version of filter name to use in internal ids, js functions and css classes.
@@ -46,8 +48,8 @@ class CrudFilter
             $this->fallbackLogic = $fallbackLogic;
         }
 
-        if (\Request::has($this->name)) {
-            $this->currentValue = \Request::input($this->name);
+        if (request()->has($this->name)) {
+            $this->currentValue = request()->input($this->name);
         }
     }
 
@@ -59,7 +61,7 @@ class CrudFilter
      */
     public function isActive()
     {
-        if (\Request::has($this->name)) {
+        if (request()->has($this->name)) {
             return true;
         }
 
@@ -103,7 +105,7 @@ class CrudFilter
             $input = new ParameterBag($input);
         }
 
-        $input = $input ?? new ParameterBag($this->crud()->getRequest()->all());
+        $input = $input ?? new ParameterBag(request()->all());
 
         if (! $input->has($this->name)) {
             // if fallback logic was supplied and is a closure
@@ -144,7 +146,9 @@ class CrudFilter
      */
     public static function name($name)
     {
-        return new static(compact('name'), null, null, null);
+        $filter = new static(compact('name'), null, null, null);
+
+        return $filter->save();
     }
 
     /**

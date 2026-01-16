@@ -2,12 +2,17 @@
 
 namespace Backpack\CRUD\Tests\Unit\CrudPanel;
 
-use Backpack\CRUD\Tests\Unit\Models\User;
+use Arr;
+use Backpack\CRUD\app\Library\CrudPanel\CrudField;
+use Backpack\CRUD\Tests\config\CrudPanel\BaseCrudPanel;
+use Backpack\CRUD\Tests\config\Models\Star;
+use Backpack\CRUD\Tests\config\Models\User;
+use Illuminate\Http\Request;
 
 /**
  * @covers Backpack\CRUD\app\Library\CrudPanel\Traits\Fields
  */
-class CrudPanelFieldsTest extends BaseDBCrudPanelTest
+class CrudPanelFieldsTest extends BaseCrudPanel
 {
     private $oneTextFieldArray = [
         'name'  => 'field1',

@@ -2,6 +2,8 @@
 
 namespace Backpack\CRUD\app\Library\CrudPanel\Traits;
 
+use Backpack\CRUD\app\Library\CrudPanel\Hooks\Facades\LifecycleHook;
+
 trait Operations
 {
     /*
@@ -59,10 +61,16 @@ trait Operations
      * @param  string|array  $operation  Operation name in string form
      * @param  bool|\Closure  $closure  Code that calls CrudPanel methods.
      * @return void
+     *
+     * @deprecated use LifecycleHook::hookInto($operation.':before_setup', $closure) instead
      */
     public function operation($operations, $closure = false)
     {
-        return $this->configureOperation($operations, $closure);
+        $this->configureOperation($operations, $closure);
+        $operations = is_array($operations) ? $operations : [$operations];
+        foreach ($operations as $operation) {
+            LifecycleHook::hookInto($operation.':before_setup', $closure);
+        }
     }
 
     /**
@@ -73,17 +81,20 @@ trait Operations
      * @param  string|array  $operation  Operation name in string form
      * @param  bool|\Closure  $closure  Code that calls CrudPanel methods.
      * @return void
+     *
+     * @deprecated use LifecycleHook::hookInto($operation.':before_setup', $closure) instead
      */
     public function configureOperation($operations, $closure = false)
     {
-        $operations = (array) $operations;
+        $operations = is_array($operations) ? $operations : [$operations];
 
         foreach ($operations as $operation) {
             $configuration = (array) $this->get($operation.'.configuration');
             $configuration[] = $closure;
 
             $this->set($operation.'.configuration', $configuration);
-        }
+            LifecycleHook::hookInto($operation.':before_setup', $closure);
+         }
     }
 
     /**
@@ -91,16 +102,17 @@ trait Operations
      * This is called when an operation does setCurrentOperation().
      *
      *
-     * @param  string|array  $operations  [description]
+     * @param  string|array  $operations
      * @return void
      */
     public function applyConfigurationFromSettings($operations)
     {
-        $operations = (array) $operations;
+        $operations = is_array($operations) ? $operations : [$operations];
 
         foreach ($operations as $operation) {
+            LifecycleHook::trigger($operation.':before_setup');
             $configuration = (array) $this->get($operation.'.configuration');
-
+//
             if (count($configuration)) {
                 foreach ($configuration as $closure) {
                     if (is_callable($closure)) {

@@ -15,6 +15,7 @@ use Backpack\CRUD\app\Library\CrudPanel\Traits\FakeFields;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Fields;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Filters;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\HeadingsAndTitles;
+use Backpack\CRUD\app\Library\CrudPanel\Traits\Input;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Macroable;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Operations;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Query;
@@ -32,12 +33,14 @@ use Exception;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Route;
 
 class CrudPanel
 {
     // load all the default CrudPanel features
-    use Create, Read, Search, Update, Delete, /*Input,*/ Errors, Reorder, Access, Columns, Fields, Query, Buttons, AutoSet, FakeFields, FakeColumns, AutoFocus, Filters, Tabs, Views, Validation, HeadingsAndTitles, Operations, SaveActions, Settings, Relationships/*, HasViewNamespaces, MorphRelationships*/;
+    use Create, Read, Search, Update, Delete, Input, Errors, Reorder, Access, Columns, Fields, Query, Buttons, AutoSet, FakeFields, FakeColumns, AutoFocus, Filters, Tabs, Views, Validation, HeadingsAndTitles, Operations, SaveActions, Settings, Relationships/*, HasViewNamespaces, MorphRelationships*/;
 
     // allow developers to add their own closures to this object
     use Macroable;
@@ -50,6 +53,7 @@ class CrudPanel
     // All functions and methods are also public, so they can be used in your EntityCrudController to modify these variables.
 
     public $model = "\App\Models\Entity"; // what's the namespace for your entity's model
+
     public $route; // what route have you defined for your entity? used for links.
     public $entity_name = 'entry'; // what name will show up on the buttons, in singural (ex: Add entity)
     public $entity_name_plural = 'entries'; // what name will show up on the buttons, in plural (ex: Delete 5 entities)
@@ -58,31 +62,50 @@ class CrudPanel
 
     protected $request;
 
+    public bool $initialized = false;
+
+    public $controller;
+
     // The following methods are used in CrudController or your EntityCrudController to manipulate the variables above.
 
     public function __construct()
     {
-        $this->setRequest();
+//        $this->setRequest();
 
         if ($this->getCurrentOperation()) {
             $this->setOperation($this->getCurrentOperation());
         }
     }
 
-    /**
-     * Set the request instance for this CRUD.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     */
-    public function setRequest($request = null)
+    public function isInitialized()
     {
-        $this->request = $request ?? \Request::instance();
+        return $this->initialized;
+    }
+
+    public function initialize(string $controller, $request): self
+    {
+        $this->setRequest($request);
+        $this->setController($controller);
+
+        return $this;
     }
 
     /**
-     * [getRequest description].
+     * Set the request instance for this CRUD.
      *
-     * @return [type] [description]
+     * @param  Request  $request
+     */
+    public function setRequest($request = null): self
+    {
+        $this->request = $request ?? \Request::instance();
+
+        return $this;
+    }
+
+    /**
+     * Get the request instance for this CRUD.
+     *
+     * @return Request
      */
     public function getRequest()
     {
@@ -112,7 +135,7 @@ class CrudPanel
         }
 
         $this->model = new $model_namespace();
-        $this->query = $this->model->select('*');
+        $this->query = clone $this->totalQuery = $this->model->select('*');
         $this->entry = null;
     }
 
@@ -136,12 +159,19 @@ class CrudPanel
         return $this->getModel()->getConnection()->getSchemaBuilder();
     }
 
+    public function setController(string $crudController)
+    {
+        $this->controller = $crudController;
+    }
+
     /**
      * Check if the database connection driver is using mongodb.
      *
      * DEPRECATION NOTICE: This method is no longer used and will be removed in future versions of Backpack
      *
      * @deprecated
+     *
+     * @codeCoverageIgnore
      *
      * @return bool
      */
@@ -169,7 +199,7 @@ class CrudPanel
      */
     public function getSqlDriverList()
     {
-        return ['mysql', 'sqlsrv', 'sqlite', 'pgsql'];
+        return ['mysql', 'sqlsrv', 'sqlite', 'pgsql', 'mariadb'];
     }
 
     /**
@@ -180,6 +210,9 @@ class CrudPanel
      */
     public function setRoute($route)
     {
+        if (str_starts_with($route, url('/'))) {
+            $route = substr($route, strlen(url('/')));
+        }
         $this->route = ltrim($route, '/');
     }
 
@@ -355,6 +388,9 @@ class CrudPanel
         $result = array_reduce(array_splice($relationArray, 0, $length), function ($obj, $method) {
             try {
                 $result = $obj->$method();
+                if (! $result instanceof Relation) {
+                    throw new Exception('Not a relation');
+                }
 
                 return $result->getRelated();
             } catch (Exception $e) {
@@ -381,20 +417,21 @@ class CrudPanel
         $endModels = $this->getRelatedEntries($model, $relationString);
         $attributes = [];
         foreach ($endModels as $model => $entries) {
+            /** @var Model $model_instance */
             $model_instance = new $model();
             $modelKey = $model_instance->getKeyName();
 
             if (is_array($entries)) {
                 //if attribute does not exist in main array we have more than one entry OR the attribute
-                //is an acessor that is not in $appends property of model.
+                //is an accessor that is not in $appends property of model.
                 if (! isset($entries[$attribute])) {
-                    //we first check if we don't have the attribute because it's an acessor that is not in appends.
+                    //we first check if we don't have the attribute because it's an accessor that is not in appends.
                     if ($model_instance->hasGetMutator($attribute) && isset($entries[$modelKey])) {
                         $entry_in_database = $model_instance->find($entries[$modelKey]);
                         $attributes[$entry_in_database->{$modelKey}] = $this->parseTranslatableAttributes($model_instance, $attribute, $entry_in_database->{$attribute});
                     } else {
                         //we have multiple entries
-                        //for each entry we check if $attribute exists in array or try to check if it's an acessor.
+                        //for each entry we check if $attribute exists in array or try to check if it's an accessor.
                         foreach ($entries as $entry) {
                             if (isset($entry[$attribute])) {
                                 $attributes[$entry[$modelKey]] = $this->parseTranslatableAttributes($model_instance, $attribute, $entry[$attribute]);
@@ -407,7 +444,7 @@ class CrudPanel
                         }
                     }
                 } else {
-                    //if we have the attribute we just return it, does not matter if it is direct attribute or an acessor added in $appends.
+                    //if we have the attribute we just return it, does not matter if it is direct attribute or an accessor added in $appends.
                     $attributes[$entries[$modelKey]] = $this->parseTranslatableAttributes($model_instance, $attribute, $entries[$attribute]);
                 }
             }
@@ -435,7 +472,7 @@ class CrudPanel
         }
 
         if (! is_array($value)) {
-            $decodedAttribute = json_decode($value, true);
+            $decodedAttribute = json_decode($value, true) ?? ($value !== null ? [$value] : []);
         } else {
             $decodedAttribute = $value;
         }
@@ -449,6 +486,21 @@ class CrudPanel
         }
 
         return $value;
+    }
+
+    public function setLocaleOnModel(Model $model)
+    {
+        $useFallbackLocale = $this->shouldUseFallbackLocale();
+
+        if (method_exists($model, 'translationEnabled') && $model->translationEnabled()) {
+            $locale = $this->getRequest()->input('_locale', app()->getLocale());
+            if (in_array($locale, array_keys($model->getAvailableLocales()))) {
+                $model->setLocale(! is_bool($useFallbackLocale) ? $useFallbackLocale : $locale);
+                $model->useFallbackLocale = (bool) $useFallbackLocale;
+            }
+        }
+
+        return $model;
     }
 
     /**
@@ -493,7 +545,24 @@ class CrudPanel
     }
 
     /**
+     * USED?
+     * Allow to add an attribute to multiple fields/columns/filters/buttons at same time.
+     *
+     * Using the fluent syntax allow the developer to add attributes to multiple fields at the same time. Eg:
+     *
+     * - CRUD::group(CRUD::field('price')->type('number'), CRUD::field('title')->type('text'))->tab('both_on_same_tab');
+     *
+     * @param  mixed fluent syntax objects.
+     * @return CrudObjectGroup
+     */
+    public function group(...$objects)
+    {
+        return new CrudObjectGroup(...$objects);
+    }
+
+    /**
      * Check if the method in the given model has any parameters.
+     * (MISSING IN v7 - users are different. ex: src/app/Library/CrudPanel/Traits/ColumnsProtectedMethods.php)
      *
      * @param  object  $model
      * @param  string  $method

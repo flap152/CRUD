@@ -2,6 +2,9 @@
 
 namespace Backpack\CRUD\app\Library\CrudPanel;
 
+use Backpack\CRUD\app\Library\CrudPanel\Traits\Support\MacroableWithAttributes;
+use Illuminate\Support\Traits\Conditionable;
+
 /**
  * Adds fluent syntax to Backpack CRUD Columns.
  *
@@ -28,6 +31,9 @@ namespace Backpack\CRUD\app\Library\CrudPanel;
  */
 class CrudColumn
 {
+    use Conditionable;
+    use MacroableWithAttributes;
+
     protected $attributes;
 
     public function __construct($name)
@@ -174,6 +180,11 @@ class CrudColumn
         return $this;
     }
 
+    public function getAttributes()
+    {
+        return $this->attributes;
+    }
+
     // ---------------
     // PRIVATE METHODS
     // ---------------
@@ -213,9 +224,23 @@ class CrudColumn
             $this->crud()->setColumnDetails($key, $this->attributes);
         } else {
             $this->crud()->addColumn($this->attributes);
+            $this->attributes = $this->getFreshAttributes();
         }
 
         return $this;
+    }
+
+    /**
+     * Get the fresh attributes for the current column.
+     *
+     * @return array
+     */
+    private function getFreshAttributes()
+    {
+        $key = isset($this->attributes['key']) ? 'key' : 'name';
+        $search = $this->attributes['key'] ?? $this->attributes['name'];
+
+        return $this->crud()->firstColumnWhere($key, $search);
     }
 
     // -------------
@@ -235,6 +260,10 @@ class CrudColumn
      */
     public function __call($method, $parameters)
     {
+        if (static::hasMacro($method)) {
+            return $this->macroCall($method, $parameters);
+        }
+
         $this->setAttributeValue($method, $parameters[0]);
 
         return $this->save();

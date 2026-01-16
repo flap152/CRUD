@@ -244,6 +244,7 @@ return [
     'middleware_class' => [
         App\Http\Middleware\CheckIfAdmin::class,
         \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
+        \Backpack\CRUD\app\Http\Middleware\AuthenticateSession::class,
         // \Backpack\CRUD\app\Http\Middleware\UseBackpackAuthGuardInsteadOfDefaultAuthGuard::class,
     ],
 
@@ -305,6 +306,7 @@ return [
     |--------------------------------------------------------------------------
     | License Code
     |--------------------------------------------------------------------------
+    'useDatabaseTransactions' => false,
     |
     | If you, your employer or your client make money by using Backpack, you need
     | to purchase a license. A license code will be provided after purchase,

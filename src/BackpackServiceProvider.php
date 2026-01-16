@@ -3,17 +3,23 @@
 namespace Backpack\CRUD;
 
 use Backpack\CRUD\app\Http\Middleware\ThrottlePasswordRecovery;
-use Backpack\CRUD\app\Library\CrudPanel\CrudPanel;
+
 use Backpack\CRUD\app\Library\Database\DatabaseSchema;
+use Backpack\CRUD\app\Library\Uploaders\Support\UploadersRepository;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
+use Illuminate\View\Compilers\BladeCompiler;
 
+/** @property \Illuminate\Foundation\Application $app */
 class BackpackServiceProvider extends ServiceProvider
 {
-    use Stats, LicenseCheck;
+    use Stats;
+//    use LicenseCheck;
 
     protected $commands = [
         \Backpack\CRUD\app\Console\Commands\Install::class,
@@ -39,16 +45,16 @@ class BackpackServiceProvider extends ServiceProvider
      *
      * @return void
      */
-    public function boot(\Illuminate\Routing\Router $router)
+    public function boot(Router $router)
     {
-        $this->loadViewsWithFallbacks();
+//        $this->loadViewsWithFallbacks();
         $this->loadTranslationsFrom(realpath(__DIR__.'/resources/lang'), 'backpack');
         $this->loadConfigs();
         $this->registerMiddlewareGroup($this->app->router);
         $this->setupRoutes($this->app->router);
         $this->setupCustomRoutes($this->app->router);
         $this->publishFiles();
-        $this->checkLicenseCodeExists();
+//        $this->checkLicenseCodeExists();
         $this->sendUsageStats();
     }
 
@@ -59,13 +65,38 @@ class BackpackServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        // Bind the CrudPanel object to Laravel's service container
-        $this->app->singleton('crud', function ($app) {
-            return new CrudPanel($app);
+        // load the macros
+        include_once __DIR__.'/macros.php';
+//        $this->loadViewsWithFallbacksOrig();
+//        $this->loadViewsWithFallbacksXX('base');
+//        $this->loadViewsWithFallbacksXX('crud');
+        $this->loadViewsWithFallbacksXX('crud');
+        $this->loadViewsWithFallbacksXX('ui', 'backpack.ui');
+//        $this->loadViewNamespace('widgets', 'backpack.ui::widgets');
+        ViewNamespaces::addFor('widgets', 'crud::widgets');
+
+//        $this->loadViewComponents();
+//        $this->registerDynamicBladeComponents();
+
+//        $this->registerBackpackErrorViews();
+
+        $this->app->bind('crud', function ($app) {
+            return CrudManager::identifyCrudPanel();
+        });
+
+        $this->app->scoped('CrudManager', function ($app) {
+            return new CrudPanelManager();
         });
 
         $this->app->scoped('DatabaseSchema', function ($app) {
             return new DatabaseSchema();
+        });
+        $this->app->scoped('BackpackLifecycleHooks', function ($app) {
+            return new app\Library\CrudPanel\Hooks\LifecycleHooks();
+        });
+
+        $this->app->singleton('BackpackViewNamespaces', function ($app) {
+            return new ViewNamespaces();
         });
         // Bind the widgets collection object to Laravel's service container
         $this->app->singleton('widgets', function ($app) {
@@ -74,9 +105,13 @@ class BackpackServiceProvider extends ServiceProvider
 
         // load a macro for Route,
         // helps developers load all routes for a CRUD resource in one line
-        if (! Route::hasMacro('crud')) {
-            $this->addRouteMacro();
-        }
+//        if (! Route::hasMacro('crud')) {
+//            $this->addRouteMacro();
+//        }
+//        if (! \Route::hasMacro('crud')) {
+//            dd('YO! no Route::crud macro? Yet?');
+//            $this->addRouteMacro();
+//        }
 
         // register the helper functions
         $this->loadHelpers();
@@ -109,7 +144,7 @@ class BackpackServiceProvider extends ServiceProvider
 
     public function publishFiles()
     {
-        $error_views = [__DIR__.'/resources/error_views' => resource_path('views/errors')];
+//        $error_views = [__DIR__.'/resources/error_views' => resource_path('views/errors')];
         $backpack_views = [__DIR__.'/resources/views' => resource_path('views/vendor/backpack')];
         $backpack_public_assets = [__DIR__.'/public' => public_path()];
         $backpack_lang_files = [__DIR__.'/resources/lang' => resource_path('lang/vendor/backpack')];
@@ -117,9 +152,10 @@ class BackpackServiceProvider extends ServiceProvider
 
         // sidebar content views, which are the only views most people need to overwrite
         $backpack_menu_contents_view = [
-            __DIR__.'/resources/views/base/inc/sidebar_content.blade.php'      => resource_path('views/vendor/backpack/base/inc/sidebar_content.blade.php'),
-            __DIR__.'/resources/views/base/inc/topbar_left_content.blade.php'  => resource_path('views/vendor/backpack/base/inc/topbar_left_content.blade.php'),
-            __DIR__.'/resources/views/base/inc/topbar_right_content.blade.php' => resource_path('views/vendor/backpack/base/inc/topbar_right_content.blade.php'),
+            __DIR__.'/resources/views/ui/inc/menu_items.blade.php' => resource_path('views/vendor/backpack/ui/inc/menu_items.blade.php'),
+            __DIR__.'/resources/views/ui/inc/sidebar_content.blade.php'      => resource_path('views/vendor/backpack/ui/inc/sidebar_content.blade.php'),
+            __DIR__.'/resources/views/ui/inc/topbar_left_content.blade.php'  => resource_path('views/vendor/backpack/ui/inc/topbar_left_content.blade.php'),
+            __DIR__.'/resources/views/ui/inc/topbar_right_content.blade.php' => resource_path('views/vendor/backpack/ui/inc/topbar_right_content.blade.php'),
         ];
         $backpack_custom_routes_file = [__DIR__.$this->customRoutesFilePath => base_path($this->customRoutesFilePath)];
 
@@ -154,7 +190,7 @@ class BackpackServiceProvider extends ServiceProvider
     /**
      * Define the routes for the application.
      *
-     * @param  \Illuminate\Routing\Router  $router
+     * @param  Router  $router
      * @return void
      */
     public function setupRoutes(Router $router)
@@ -173,7 +209,7 @@ class BackpackServiceProvider extends ServiceProvider
     /**
      * Load custom routes file.
      *
-     * @param  \Illuminate\Routing\Router  $router
+     * @param  Router  $router
      * @return void
      */
     public function setupCustomRoutes(Router $router)
@@ -190,9 +226,9 @@ class BackpackServiceProvider extends ServiceProvider
      *
      * It will go to the given CrudController and get the setupRoutes() method on it.
      */
-    private function addRouteMacro()
+    private function addRouteMacroX()
     {
-        Route::macro('crud', function ($name, $controller) {
+        Route::macro('crudXX', function ($name, $controller) {
             // put together the route name prefix,
             // as passed to the Route::group() statements
             $routeName = '';
@@ -225,7 +261,12 @@ class BackpackServiceProvider extends ServiceProvider
         });
     }
 
-    public function loadViewsWithFallbacks()
+   public function loadViewNamespace($domain, $namespace)
+    {
+        ViewNamespaces::addFor($domain, $namespace);
+    }
+
+    public function loadViewsWithFallbacksOrig()
     {
         $customBaseFolder = resource_path('views/vendor/backpack/base');
         $customCrudFolder = resource_path('views/vendor/backpack/crud');
@@ -242,11 +283,44 @@ class BackpackServiceProvider extends ServiceProvider
         $this->loadViewsFrom(realpath(__DIR__.'/resources/views/crud'), 'crud');
     }
 
+    public function loadViewsWithFallbacksXX($dir, $namespace = null)
+    {
+        $customFolder = resource_path('views/vendor/backpack/'.$dir);
+        $vendorFolder = realpath(__DIR__.'/resources/views/'.$dir);
+        $namespace = $namespace ?? $dir;
+
+        // first the published/overwritten views (in case they have any changes)
+        if (file_exists($customFolder)) {
+            $this->loadViewsFrom($customFolder, $namespace);
+        }
+        // then the stock views that come with the package, in case a published view might be missing
+        $this->loadViewsFrom($vendorFolder, $namespace);
+    }
+
+    protected function mergeConfigsFromDirectory($dir)
+    {
+        $configs = scandir(__DIR__."/config/backpack/$dir/");
+        $configs = array_diff($configs, ['.', '..']);
+
+        if (! count($configs)) {
+            return;
+        }
+
+        foreach ($configs as $configFile) {
+            $this->mergeConfigFrom(
+                __DIR__."/config/backpack/$dir/$configFile",
+                "backpack.$dir.".substr($configFile, 0, strrpos($configFile, '.'))
+            );
+        }
+    }
+
     public function loadConfigs()
     {
         // use the vendor configuration file as fallback
         $this->mergeConfigFrom(__DIR__.'/config/backpack/crud.php', 'backpack.crud');
         $this->mergeConfigFrom(__DIR__.'/config/backpack/base.php', 'backpack.base');
+        $this->mergeConfigFrom(__DIR__.'/config/backpack/ui.php', 'backpack.ui');
+        $this->mergeConfigsFromDirectory('operations');
 
         // add the root disk to filesystem configuration
         app()->config['filesystems.disks.'.config('backpack.base.root_disk_name')] = [
@@ -310,6 +384,6 @@ class BackpackServiceProvider extends ServiceProvider
      */
     public function provides()
     {
-        return ['crud', 'widgets'];
+        return [/*'crud',*/ 'widgets', 'BackpackViewNamespaces', 'DatabaseSchema', 'CrudManager'];
     }
 }

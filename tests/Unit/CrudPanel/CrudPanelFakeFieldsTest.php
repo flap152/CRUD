@@ -2,13 +2,15 @@
 
 namespace Backpack\CRUD\Tests\Unit\CrudPanel;
 
-use Backpack\CRUD\Tests\Unit\Models\Article;
+use Backpack\CRUD\Tests\config\Models\Article;
 use Illuminate\Support\Facades\DB;
+use Backpack\CRUD\Tests\config\Models\User;
 
 /**
  * @covers Backpack\CRUD\app\Library\CrudPanel\Traits\FakeFields
  */
-class CrudPanelFakeFieldsTest extends BaseDBCrudPanelTest
+//class CrudPanelFakeFieldsTest extends BaseDBCrudPanelTest
+class CrudPanelFakeFieldsTest extends \Backpack\CRUD\Tests\config\CrudPanel\BaseCrudPanel
 {
     private $fakeFieldsArray = [
         [
@@ -120,18 +122,17 @@ class CrudPanelFakeFieldsTest extends BaseDBCrudPanelTest
         $this->crudPanel->addFields($this->fakeFieldsArray);
         $this->crudPanel->setModel(Article::class);
 
-        $compactedFakeFields = $this->crudPanel->compactFakeFields($this->fakeFieldsInputData, 'create');
+        $compactedFakeFields = $this->crudPanel->compactFakeFields($this->fakeFieldsInputData);
 
         $this->assertEquals($this->expectedInputDataWithCompactedFakeFields, $compactedFakeFields);
     }
 
     public function testCompactFakeFieldsFromUpdateForm()
     {
-        $article = DB::table('articles')->where('id', 1)->first();
         $this->crudPanel->setModel(Article::class);
-        $this->crudPanel->addFields($this->fakeFieldsArray, 'update');
+        $this->crudPanel->addFields($this->fakeFieldsArray);
 
-        $compactedFakeFields = $this->crudPanel->compactFakeFields($this->fakeFieldsInputData, 'update', $article->id);
+        $compactedFakeFields = $this->crudPanel->compactFakeFields($this->fakeFieldsInputData);
 
         $this->assertEquals($this->expectedInputDataWithCompactedFakeFields, $compactedFakeFields);
     }
@@ -149,7 +150,6 @@ class CrudPanelFakeFieldsTest extends BaseDBCrudPanelTest
 
     public function testCompactFakeFieldsFromUpdateFormWithUnknownId()
     {
-        $unknownId = DB::getPdo()->lastInsertId() + 1;
         $this->crudPanel->setModel(Article::class);
         $this->crudPanel->setOperation('update');
         $this->crudPanel->addFields($this->fakeFieldsArray);
@@ -173,6 +173,7 @@ class CrudPanelFakeFieldsTest extends BaseDBCrudPanelTest
         $this->assertEquals($this->noFakeFieldsInputData, $compactedFakeFields);
     }
 
+
     public function testCompactFakeFieldsFromUnknownForm()
     {
         $this->markTestIncomplete('Not correctly implemented');
@@ -183,4 +184,31 @@ class CrudPanelFakeFieldsTest extends BaseDBCrudPanelTest
         //       read trait, which returns the create fields in case of an unknown form type.
         $this->crudPanel->compactFakeFields($this->fakeFieldsInputData, 'unknownForm');
     }
+//// MISSING IN 7
+//    public function testCompactRelationshipSubfields()
+//    {
+//        $this->crudPanel->setModel(User::class);
+//        $this->crudPanel->addField([
+//            'name' => 'articles',
+//            'subfields' => [
+//                [
+//                    'name' => 'content',
+//                    'fake' => true,
+//                ],
+//                [
+//                    'name' => 'metas',
+//                    'fake' => true,
+//                ],
+//            ],
+//        ]);
+//
+//        $compactedFakeFields = $this->crudPanel->compactFakeFields([
+//            'content' => 'Content Value',
+//            'metas' => ['meta1', 'meta2', 'meta3'],
+//        ], Article::class);
+//
+//        $this->assertEquals([
+//            'extras' => '{"content":"Content Value","metas":["meta1","meta2","meta3"]}',
+//        ], $compactedFakeFields);
+//    }
 }

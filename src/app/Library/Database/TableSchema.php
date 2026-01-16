@@ -9,7 +9,7 @@ class TableSchema
 
     public function __construct(string $connection, string $table)
     {
-        $this->schema = app('DatabaseSchema')->getForTable($connection, $table);
+        $this->schema = app('DatabaseSchema')->getForTable($table, $connection);
     }
 
     /**
@@ -66,7 +66,7 @@ class TableSchema
      */
     public function columnIsNullable($columnName)
     {
-        if (! $this->columnExists($columnName)) {
+        if (! $this->hasColumn($columnName)) {
             return true;
         }
 
@@ -83,7 +83,7 @@ class TableSchema
      */
     public function columnHasDefault($columnName)
     {
-        if (! $this->columnExists($columnName)) {
+        if (! $this->hasColumn($columnName)) {
             return false;
         }
 
@@ -100,7 +100,7 @@ class TableSchema
      */
     public function getColumnDefault($columnName)
     {
-        if (! $this->columnExists($columnName)) {
+        if (! $this->hasColumn($columnName)) {
             return false;
         }
 
@@ -123,20 +123,20 @@ class TableSchema
         return $this->schema->getColumns();
     }
 
-    /**
-     * Make sure column exists or throw an exception.
-     *
-     * @param  string  $columnName
-     * @return bool
-     */
-    private function columnExists($columnName)
-    {
-        if (! $this->schemaExists()) {
-            return false;
-        }
-
-        return $this->schema->hasColumn($columnName);
-    }
+//    /**
+//     * Make sure column exists or throw an exception.
+//     *
+//     * @param  string  $columnName
+//     * @return bool
+//     */
+//    private function columnExists($columnName)
+//    {
+//        if (! $this->schemaExists()) {
+//            return false;
+//        }
+//
+//        return $this->schema->hasColumn($columnName);
+//    }
 
     /**
      * Make sure the schema for the connection is initialized.

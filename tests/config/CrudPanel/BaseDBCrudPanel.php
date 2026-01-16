@@ -1,11 +1,11 @@
 <?php
 
-namespace Backpack\CRUD\Tests\Unit\CrudPanel;
+namespace Backpack\CRUD\Tests\config\CrudPanel;
 
 use Backpack\CRUD\app\Library\CrudPanel\CrudPanel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
-abstract class BaseDBCrudPanelTest extends BaseCrudPanelTest
+abstract class BaseDBCrudPanel extends BaseCrudPanel
 {
     use RefreshDatabase;
 
@@ -31,9 +31,10 @@ abstract class BaseDBCrudPanelTest extends BaseCrudPanelTest
             '--path' => realpath(__DIR__.'/../../config/database/migrations'),
         ]);
 
-        $this->artisan('db:seed', ['--class' => 'Backpack\CRUD\Tests\Config\Database\Seeds\UsersRolesTableSeeder']);
-        $this->artisan('db:seed', ['--class' => 'Backpack\CRUD\Tests\Config\Database\Seeds\UsersTableSeeder']);
-        $this->artisan('db:seed', ['--class' => 'Backpack\CRUD\Tests\Config\Database\Seeds\ArticlesTableSeeder']);
+        $this->seed('Backpack\CRUD\Tests\config\database\seeds\UsersRolesTableSeeder');
+        $this->seed('Backpack\CRUD\Tests\config\database\seeds\UsersTableSeeder');
+        $this->seed('Backpack\CRUD\Tests\config\database\seeds\ArticlesTableSeeder');
+        $this->seed('Backpack\CRUD\Tests\config\database\seeds\MorphableSeeders');
     }
 
     /**
@@ -45,6 +46,17 @@ abstract class BaseDBCrudPanelTest extends BaseCrudPanelTest
     protected function getEnvironmentSetUp($app)
     {
         $app['config']->set('database.default', 'testing');
+        $app['config']->set('backpack.base.route_prefix', 'admin');
+
+        $app->bind('App\Http\Middleware\CheckIfAdmin', function () {
+            return new class
+            {
+                public function handle($request, $next)
+                {
+                    return $next($request);
+                }
+            };
+        });
     }
 
     /**

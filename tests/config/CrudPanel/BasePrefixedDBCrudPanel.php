@@ -1,12 +1,12 @@
 <?php
 
-namespace Backpack\CRUD\Tests\Unit\CrudPanel;
+namespace Backpack\CRUD\Tests\config\CrudPanel;
 
 use Backpack\CRUD\app\Library\CrudPanel\CrudPanel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 
-abstract class BasePrefixedDBCrudPanelTest extends BaseCrudPanelTest
+abstract class BasePrefixedDBCrudPanel extends BaseCrudPanel
 {
     use RefreshDatabase;
 
