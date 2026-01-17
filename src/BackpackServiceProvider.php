@@ -5,15 +5,15 @@ namespace Backpack\CRUD;
 use Backpack\CRUD\app\Http\Middleware\ThrottlePasswordRecovery;
 use Backpack\CRUD\app\Library\CrudPanel\CrudPanel;
 use Backpack\CRUD\app\Library\Database\DatabaseSchema;
+use Backpack\CRUD\CrudPanelManager;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
 class BackpackServiceProvider extends ServiceProvider
 {
-    use Stats, LicenseCheck;
+    use LicenseCheck;
+    use Stats;
 
     protected $commands = [
         \Backpack\CRUD\app\Console\Commands\Install::class,
@@ -24,6 +24,10 @@ class BackpackServiceProvider extends ServiceProvider
         \Backpack\CRUD\app\Console\Commands\PublishBackpackMiddleware::class,
         \Backpack\CRUD\app\Console\Commands\PublishView::class,
         \Backpack\CRUD\app\Console\Commands\RequireDevTools::class,
+        //from v7
+//        \Backpack\CRUD\app\Console\Commands\Addons\RequireDevTools::class,
+//        \Backpack\CRUD\app\Console\Commands\Addons\RequireEditableColumns::class,
+//        \Backpack\CRUD\app\Console\Commands\Addons\RequirePro::class,
         \Backpack\CRUD\app\Console\Commands\Fix::class,
     ];
 
@@ -39,7 +43,7 @@ class BackpackServiceProvider extends ServiceProvider
      *
      * @return void
      */
-    public function boot(\Illuminate\Routing\Router $router)
+    public function boot(Router $router)
     {
         $this->loadViewsWithFallbacks();
         $this->loadTranslationsFrom(realpath(__DIR__.'/resources/lang'), 'backpack');
@@ -48,7 +52,7 @@ class BackpackServiceProvider extends ServiceProvider
         $this->setupRoutes($this->app->router);
         $this->setupCustomRoutes($this->app->router);
         $this->publishFiles();
-        $this->checkLicenseCodeExists();
+//        $this->checkLicenseCodeExists(); // absent in v7
         $this->sendUsageStats();
     }
 
@@ -59,24 +63,39 @@ class BackpackServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        // Bind the CrudPanel object to Laravel's service container
-        $this->app->singleton('crud', function ($app) {
-            return new CrudPanel($app);
+        // load the macros
+        include_once __DIR__.'/macros.php';
+
+        // Register the CrudPanelManager as a scoped singleton (fresh per request)
+        $this->app->scoped('CrudManager', function ($app) {
+            return new CrudPanelManager();
+        });
+
+        // Bind 'crud' to dynamically resolve the correct CrudPanel from the manager
+        // This allows multiple controllers to have their own CrudPanel instances
+        $this->app->bind('crud', function ($app) {
+            return $app->make('CrudManager')->identifyCrudPanel();
         });
 
         $this->app->scoped('DatabaseSchema', function ($app) {
             return new DatabaseSchema();
         });
+
+// unused from v7
+//        $this->app->singleton('BackpackViewNamespaces', function ($app) {
+//            return new ViewNamespaces();
+//        });
+
         // Bind the widgets collection object to Laravel's service container
         $this->app->singleton('widgets', function ($app) {
             return new Collection();
         });
-
-        // load a macro for Route,
-        // helps developers load all routes for a CRUD resource in one line
-        if (! Route::hasMacro('crud')) {
-            $this->addRouteMacro();
-        }
+//missing in v7 (importing macros.php above) - we may make it conditional (above?) again, because BCV could implement
+//        // load a macro for Route,
+//        // helps developers load all routes for a CRUD resource in one line
+//        if (! Route::hasMacro('crud')) {
+//            $this->addRouteMacro();
+//        }
 
         // register the helper functions
         $this->loadHelpers();
@@ -112,7 +131,7 @@ class BackpackServiceProvider extends ServiceProvider
         $error_views = [__DIR__.'/resources/error_views' => resource_path('views/errors')];
         $backpack_views = [__DIR__.'/resources/views' => resource_path('views/vendor/backpack')];
         $backpack_public_assets = [__DIR__.'/public' => public_path()];
-        $backpack_lang_files = [__DIR__.'/resources/lang' => resource_path('lang/vendor/backpack')];
+        $backpack_lang_files = [__DIR__.'/resources/lang' => app()->langPath().'/vendor/backpack'];
         $backpack_config_files = [__DIR__.'/config' => config_path()];
 
         // sidebar content views, which are the only views most people need to overwrite
@@ -159,6 +178,10 @@ class BackpackServiceProvider extends ServiceProvider
      */
     public function setupRoutes(Router $router)
     {
+        // Note: Removed exclusive testing routes loading that prevented normal routes
+        // from loading during browser tests. The testing.php routes referenced a
+        // non-existent controller.
+
         // by default, use the routes file provided in vendor
         $routeFilePathInUse = __DIR__.$this->routeFilePath;
 
@@ -185,45 +208,46 @@ class BackpackServiceProvider extends ServiceProvider
     }
 
     /**
+     * MISSING IN v7 - not used anymore - see ./macros.php
      * The route macro allows developers to generate the routes for a CrudController,
      * for all operations, using a simple syntax: Route::crud().
      *
      * It will go to the given CrudController and get the setupRoutes() method on it.
      */
-    private function addRouteMacro()
-    {
-        Route::macro('crud', function ($name, $controller) {
-            // put together the route name prefix,
-            // as passed to the Route::group() statements
-            $routeName = '';
-            if ($this->hasGroupStack()) {
-                foreach ($this->getGroupStack() as $key => $groupStack) {
-                    if (isset($groupStack['name'])) {
-                        if (is_array($groupStack['name'])) {
-                            $routeName = implode('', $groupStack['name']);
-                        } else {
-                            $routeName = $groupStack['name'];
-                        }
-                    }
-                }
-            }
-            // add the name of the current entity to the route name prefix
-            // the result will be the current route name (not ending in dot)
-            $routeName .= $name;
-
-            // get an instance of the controller
-            if ($this->hasGroupStack()) {
-                $groupStack = $this->getGroupStack();
-                $groupNamespace = $groupStack && isset(end($groupStack)['namespace']) ? end($groupStack)['namespace'].'\\' : '';
-            } else {
-                $groupNamespace = '';
-            }
-            $namespacedController = $groupNamespace.$controller;
-            $controllerInstance = App::make($namespacedController);
-
-            return $controllerInstance->setupRoutes($name, $routeName, $controller);
-        });
-    }
+//    private function addRouteMacro()
+//    {
+//        Route::macro('crud', function ($name, $controller) {
+//            // put together the route name prefix,
+//            // as passed to the Route::group() statements
+//            $routeName = '';
+//            if ($this->hasGroupStack()) {
+//                foreach ($this->getGroupStack() as $key => $groupStack) {
+//                    if (isset($groupStack['name'])) {
+//                        if (is_array($groupStack['name'])) {
+//                            $routeName = implode('', $groupStack['name']);
+//                        } else {
+//                            $routeName = $groupStack['name'];
+//                        }
+//                    }
+//                }
+//            }
+//            // add the name of the current entity to the route name prefix
+//            // the result will be the current route name (not ending in dot)
+//            $routeName .= $name;
+//
+//            // get an instance of the controller
+//            if ($this->hasGroupStack()) {
+//                $groupStack = $this->getGroupStack();
+//                $groupNamespace = $groupStack && isset(end($groupStack)['namespace']) ? end($groupStack)['namespace'].'\\' : '';
+//            } else {
+//                $groupNamespace = '';
+//            }
+//            $namespacedController = $groupNamespace.$controller;
+//            $controllerInstance = App::make($namespacedController);
+//
+//            return $controllerInstance->setupRoutes($name, $routeName, $controller);
+//        });
+//    }
 
     public function loadViewsWithFallbacks()
     {
@@ -242,11 +266,29 @@ class BackpackServiceProvider extends ServiceProvider
         $this->loadViewsFrom(realpath(__DIR__.'/resources/views/crud'), 'crud');
     }
 
+    protected function mergeConfigFromOperationsDirectory()
+    {
+        $operationConfigs = scandir(__DIR__.'/config/backpack/operations/');
+        $operationConfigs = array_diff($operationConfigs, ['.', '..']);
+
+        if (! count($operationConfigs)) {
+            return;
+        }
+
+        foreach ($operationConfigs as $configFile) {
+            $this->mergeConfigFrom(
+                __DIR__.'/config/backpack/operations/'.$configFile,
+                'backpack.operations.'.substr($configFile, 0, strrpos($configFile, '.'))
+            );
+        }
+    }
+
     public function loadConfigs()
     {
         // use the vendor configuration file as fallback
         $this->mergeConfigFrom(__DIR__.'/config/backpack/crud.php', 'backpack.crud');
         $this->mergeConfigFrom(__DIR__.'/config/backpack/base.php', 'backpack.base');
+//        $this->mergeConfigFromOperationsDirectory(); // from v7 operations changes
 
         // add the root disk to filesystem configuration
         app()->config['filesystems.disks.'.config('backpack.base.root_disk_name')] = [
@@ -280,8 +322,8 @@ class BackpackServiceProvider extends ServiceProvider
             'backpack' => [
                 'provider'  => 'backpack',
                 'table'     => 'password_resets',
-                'expire'   => 60,
-                'throttle' => config('backpack.base.password_recovery_throttle_notifications'),
+                'expire'    => config('backpack.base.password_recovery_token_expiration', 60),
+                'throttle'  => config('backpack.base.password_recovery_throttle_notifications'),
             ],
         ];
 
@@ -310,6 +352,6 @@ class BackpackServiceProvider extends ServiceProvider
      */
     public function provides()
     {
-        return ['crud', 'widgets'];
+        return ['crud', 'CrudManager', 'widgets', /*'BackpackViewNamespaces', 'DatabaseSchema'*/];
     }
 }

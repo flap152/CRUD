@@ -32,13 +32,36 @@ class CrudController extends Controller
         //
         // It's done inside a middleware closure in order to have
         // the complete request inside the CrudPanel object.
+        //
+        // The CrudPanelManager ensures each controller gets its own CrudPanel
+        // instance, solving re-entrancy issues in browser tests.
         $this->middleware(function ($request, $next) {
-            $this->crud = app()->make('crud');
+            /** @var \Backpack\CRUD\CrudPanelManager $manager */
+            $manager = app('CrudManager');
+
+            // Set this controller as the active one
+            $manager->setActiveController(static::class);
+
+            // Get the CrudPanel for this specific controller
+            $this->crud = $manager->getCrudPanel(static::class);
+
+            // Reset the CrudPanel if it was already initialized (re-entrant request)
+            // This prevents state leaking between requests in browser tests
+            if ($this->crud->isInitialized()) {
+                $this->crud->reset();
+            }
+
             $this->crud->setRequest($request);
 
             $this->setupDefaults();
             $this->setup();
             $this->setupConfigurationForCurrentOperation();
+
+            // Mark the CrudPanel as initialized for this request
+            $this->crud->initialized = true;
+
+            // Clear active controller after setup is complete
+            $manager->unsetActiveController();
 
             return $next($request);
         });
@@ -95,6 +118,7 @@ class CrudController extends Controller
     protected function setupConfigurationForCurrentOperation()
     {
         $operationName = $this->crud->getCurrentOperation();
+
         $setupClassName = 'setup'.Str::studly($operationName).'Operation';
 
         /*

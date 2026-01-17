@@ -60,6 +60,11 @@ class CrudPanel
 
     // The following methods are used in CrudController or your EntityCrudController to manipulate the variables above.
 
+    /**
+     * Track if this CrudPanel has been initialized for the current request.
+     */
+    public bool $initialized = false;
+
     public function __construct()
     {
         $this->setRequest();
@@ -67,6 +72,32 @@ class CrudPanel
         if ($this->getCurrentOperation()) {
             $this->setOperation($this->getCurrentOperation());
         }
+    }
+
+    /**
+     * Reset the CrudPanel state for a new request.
+     * This clears operation settings, fields, columns, etc. to prevent
+     * state leaking between requests in browser tests.
+     */
+    public function reset(): void
+    {
+        // Clear all settings
+        $this->settings = [];
+
+        // Reset core properties
+        $this->currentOperation = null;
+        $this->entry = null;
+
+        // Mark as not initialized so it gets fully set up again
+        $this->initialized = false;
+    }
+
+    /**
+     * Check if this CrudPanel has been initialized for the current request.
+     */
+    public function isInitialized(): bool
+    {
+        return $this->initialized;
     }
 
     /**
