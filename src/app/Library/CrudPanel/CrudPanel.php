@@ -14,8 +14,11 @@ use Backpack\CRUD\app\Library\CrudPanel\Traits\FakeColumns;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\FakeFields;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Fields;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Filters;
+use Backpack\CRUD\app\Library\CrudPanel\Traits\HasViewNamespaces;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\HeadingsAndTitles;
+use Backpack\CRUD\app\Library\CrudPanel\Traits\Input;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Macroable;
+use Backpack\CRUD\app\Library\CrudPanel\Traits\MorphRelationships;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Operations;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Query;
 use Backpack\CRUD\app\Library\CrudPanel\Traits\Read;
@@ -32,12 +35,14 @@ use Exception;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Route;
 
 class CrudPanel
 {
     // load all the default CrudPanel features
-    use Create, Read, Search, Update, Delete, /*Input,*/ Errors, Reorder, Access, Columns, Fields, Query, Buttons, AutoSet, FakeFields, FakeColumns, AutoFocus, Filters, Tabs, Views, Validation, HeadingsAndTitles, Operations, SaveActions, Settings, Relationships/*, HasViewNamespaces, MorphRelationships*/;
+    use Create, Read, Search, Update, Delete, Input, Errors, Reorder, Access, Columns, Fields, Query, Buttons, AutoSet, FakeFields, FakeColumns, AutoFocus, Filters, Tabs, Views, Validation, HeadingsAndTitles, Operations, SaveActions, Settings, Relationships, HasViewNamespaces, MorphRelationships;
 
     // allow developers to add their own closures to this object
     use Macroable;
@@ -50,29 +55,27 @@ class CrudPanel
     // All functions and methods are also public, so they can be used in your EntityCrudController to modify these variables.
 
     public $model = "\App\Models\Entity"; // what's the namespace for your entity's model
+
     public $route; // what route have you defined for your entity? used for links.
+
     public $entity_name = 'entry'; // what name will show up on the buttons, in singural (ex: Add entity)
+
     public $entity_name_plural = 'entries'; // what name will show up on the buttons, in plural (ex: Delete 5 entities)
 
     public $entry;
 
     protected $request;
 
-    // The following methods are used in CrudController or your EntityCrudController to manipulate the variables above.
-
-    /**
-     * Track if this CrudPanel has been initialized for the current request.
-     */
     public bool $initialized = false;
+
+    public $controller;
+
+    // The following methods are used in CrudController or your EntityCrudController to manipulate the variables above.
 
     public function __construct()
     {
-        $this->setRequest();
-
-        if ($this->getCurrentOperation()) {
-            $this->setOperation($this->getCurrentOperation());
-        }
     }
+
 
     /**
      * Reset the CrudPanel state for a new request.
@@ -91,29 +94,36 @@ class CrudPanel
         // Mark as not initialized so it gets fully set up again
         $this->initialized = false;
     }
-
-    /**
-     * Check if this CrudPanel has been initialized for the current request.
-     */
-    public function isInitialized(): bool
+	
+    public function isInitialized()
     {
         return $this->initialized;
+    }
+
+    public function initialize(string $controller, $request): self
+    {
+        $this->setRequest($request);
+        $this->setController($controller);
+
+        return $this;
     }
 
     /**
      * Set the request instance for this CRUD.
      *
-     * @param  \Illuminate\Http\Request  $request
+     * @param  Request  $request
      */
-    public function setRequest($request = null)
+    public function setRequest($request = null): self
     {
         $this->request = $request ?? \Request::instance();
+
+        return $this;
     }
 
     /**
-     * [getRequest description].
+     * Get the request instance for this CRUD.
      *
-     * @return [type] [description]
+     * @return Request
      */
     public function getRequest()
     {
@@ -130,20 +140,20 @@ class CrudPanel
      *
      * @param  string  $model_namespace  Full model namespace. Ex: App\Models\Article
      *
-     * @throws \Exception in case the model does not exist
+     * @throws Exception in case the model does not exist
      */
     public function setModel($model_namespace)
     {
         if (! class_exists($model_namespace)) {
-            throw new \Exception('The model does not exist.', 500);
+            throw new Exception('The model does not exist.', 500);
         }
 
         if (! method_exists($model_namespace, 'hasCrudTrait')) {
-            throw new \Exception('Please use CrudTrait on the model.', 500);
+            throw new Exception('Please use CrudTrait on the model.', 500);
         }
 
         $this->model = new $model_namespace();
-        $this->query = $this->model->select('*');
+        $this->query = clone $this->totalQuery = $this->model->select('*');
         $this->entry = null;
     }
 
@@ -167,12 +177,19 @@ class CrudPanel
         return $this->getModel()->getConnection()->getSchemaBuilder();
     }
 
+    public function setController(string $crudController)
+    {
+        $this->controller = $crudController;
+    }
+
     /**
      * Check if the database connection driver is using mongodb.
      *
      * DEPRECATION NOTICE: This method is no longer used and will be removed in future versions of Backpack
      *
      * @deprecated
+     *
+     * @codeCoverageIgnore
      *
      * @return bool
      */
@@ -200,7 +217,7 @@ class CrudPanel
      */
     public function getSqlDriverList()
     {
-        return ['mysql', 'sqlsrv', 'sqlite', 'pgsql'];
+        return ['mysql', 'sqlsrv', 'sqlite', 'pgsql', 'mariadb'];
     }
 
     /**
@@ -211,6 +228,11 @@ class CrudPanel
      */
     public function setRoute($route)
     {
+        // if the route is a full URL, strip the domain
+        if (str_starts_with($route, url('/'))) {
+            $route = substr($route, strlen(url('/')));
+        }
+
         $this->route = ltrim($route, '/');
     }
 
@@ -221,7 +243,7 @@ class CrudPanel
      * @param  string  $route  Route name.
      * @param  array  $parameters  Parameters.
      *
-     * @throws \Exception
+     * @throws Exception
      */
     public function setRouteName($route, $parameters = [])
     {
@@ -230,7 +252,7 @@ class CrudPanel
         $complete_route = $route.'.index';
 
         if (! \Route::has($complete_route)) {
-            throw new \Exception('There are no routes for this route name.', 404);
+            throw new Exception('There are no routes for this route name.', 404);
         }
 
         $this->route = route($complete_route, $parameters);
@@ -332,16 +354,19 @@ class CrudPanel
         });
     }
 
-    // ------------
-    // TONE FUNCTIONS - UNDOCUMENTED, UNTESTED, SOME MAY BE USED IN THIS FILE
-    // ------------
-    //
-    // TODO:
-    // - figure out if they are really needed
-    // - comments inside the function to explain how they work
-    // - write docblock for them
-    // - place in the correct section above (CREATE, READ, UPDATE, DELETE, ACCESS, MANIPULATION)
-
+    /**
+     * TONE FUNCTIONS - UNDOCUMENTED, UNTESTED, SOME MAY BE USED IN THIS FILE.
+     *
+     * TODO:
+     * - figure out if they are really needed
+     * - comments inside the function to explain how they work
+     * - write docblock for them
+     * - place in the correct section above (CREATE, READ, UPDATE, DELETE, ACCESS, MANIPULATION)
+     *
+     * @deprecated
+     *
+     * @codeCoverageIgnore
+     */
     public function sync($type, $fields, $attributes)
     {
         if (! empty($this->{$type})) {
@@ -368,7 +393,7 @@ class CrudPanel
      * @param  int  $length  Optionally specify the number of relations to omit from the start of the relation string. If
      *                       the provided length is negative, then that many relations will be omitted from the end of the relation
      *                       string.
-     * @param  \Illuminate\Database\Eloquent\Model  $model  Optionally specify a different model than the one in the crud object.
+     * @param  Model  $model  Optionally specify a different model than the one in the crud object.
      * @return string Relation model name.
      */
     public function getRelationModel($relationString, $length = null, $model = null)
@@ -386,6 +411,9 @@ class CrudPanel
         $result = array_reduce(array_splice($relationArray, 0, $length), function ($obj, $method) {
             try {
                 $result = $obj->$method();
+                if (! $result instanceof Relation) {
+                    throw new Exception('Not a relation');
+                }
 
                 return $result->getRelated();
             } catch (Exception $e) {
@@ -400,7 +428,7 @@ class CrudPanel
      * Get the given attribute from a model or models resulting from the specified relation string (eg: the list of streets from
      * the many addresses of the company of a given user).
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model  Model (eg: user).
+     * @param  Model  $model  Model (eg: user).
      * @param  string  $relationString  Model relation. Can be a string representing the name of a relation method in the given
      *                                  Model or one from a different Model through multiple relations. A dot notation can be used to specify
      *                                  multiple relations (eg: user.company.address).
@@ -412,20 +440,21 @@ class CrudPanel
         $endModels = $this->getRelatedEntries($model, $relationString);
         $attributes = [];
         foreach ($endModels as $model => $entries) {
+            /** @var Model $model_instance */
             $model_instance = new $model();
             $modelKey = $model_instance->getKeyName();
 
             if (is_array($entries)) {
                 //if attribute does not exist in main array we have more than one entry OR the attribute
-                //is an acessor that is not in $appends property of model.
+                //is an accessor that is not in $appends property of model.
                 if (! isset($entries[$attribute])) {
-                    //we first check if we don't have the attribute because it's an acessor that is not in appends.
+                    //we first check if we don't have the attribute because it's an accessor that is not in appends.
                     if ($model_instance->hasGetMutator($attribute) && isset($entries[$modelKey])) {
                         $entry_in_database = $model_instance->find($entries[$modelKey]);
                         $attributes[$entry_in_database->{$modelKey}] = $this->parseTranslatableAttributes($model_instance, $attribute, $entry_in_database->{$attribute});
                     } else {
                         //we have multiple entries
-                        //for each entry we check if $attribute exists in array or try to check if it's an acessor.
+                        //for each entry we check if $attribute exists in array or try to check if it's an accessor.
                         foreach ($entries as $entry) {
                             if (isset($entry[$attribute])) {
                                 $attributes[$entry[$modelKey]] = $this->parseTranslatableAttributes($model_instance, $attribute, $entry[$attribute]);
@@ -438,7 +467,7 @@ class CrudPanel
                         }
                     }
                 } else {
-                    //if we have the attribute we just return it, does not matter if it is direct attribute or an acessor added in $appends.
+                    //if we have the attribute we just return it, does not matter if it is direct attribute or an accessor added in $appends.
                     $attributes[$entries[$modelKey]] = $this->parseTranslatableAttributes($model_instance, $attribute, $entries[$attribute]);
                 }
             }
@@ -450,7 +479,7 @@ class CrudPanel
     /**
      * Parse translatable attributes from a model or models resulting from the specified relation string.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model  Model (eg: user).
+     * @param  Model  $model  Model (eg: user).
      * @param  string  $attribute  The attribute from the relation model (eg: the street attribute from the address model).
      * @param  string  $value  Attribute value translatable or not
      * @return string A string containing the translated attributed based on app()->getLocale()
@@ -466,7 +495,7 @@ class CrudPanel
         }
 
         if (! is_array($value)) {
-            $decodedAttribute = json_decode($value, true);
+            $decodedAttribute = json_decode($value, true) ?? ($value !== null ? [$value] : []);
         } else {
             $decodedAttribute = $value;
         }
@@ -482,11 +511,26 @@ class CrudPanel
         return $value;
     }
 
+    public function setLocaleOnModel(Model $model)
+    {
+        $useFallbackLocale = $this->shouldUseFallbackLocale();
+
+        if (method_exists($model, 'translationEnabled') && $model->translationEnabled()) {
+            $locale = $this->getRequest()->input('_locale', app()->getLocale());
+            if (in_array($locale, array_keys($model->getAvailableLocales()))) {
+                $model->setLocale(! is_bool($useFallbackLocale) ? $useFallbackLocale : $locale);
+                $model->useFallbackLocale = (bool) $useFallbackLocale;
+            }
+        }
+
+        return $model;
+    }
+
     /**
      * Traverse the tree of relations for the given model, defined by the given relation string, and return the ending
      * associated model instance or instances.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model  The CRUD model.
+     * @param  Model  $model  The CRUD model.
      * @param  string  $relationString  Relation string. A dot notation can be used to chain multiple relations.
      * @return array An array of the associated model instances defined by the relation string.
      */
@@ -524,20 +568,17 @@ class CrudPanel
     }
 
     /**
-     * Check if the method in the given model has any parameters.
+     * Allow to add an attribute to multiple fields/columns/filters/buttons at same time.
      *
-     * @param  object  $model
-     * @param  string  $method
-     * @return bool
+     * Using the fluent syntax allow the developer to add attributes to multiple fields at the same time. Eg:
+     *
+     * - CRUD::group(CRUD::field('price')->type('number'), CRUD::field('title')->type('text'))->tab('both_on_same_tab');
+     *
+     * @param  mixed fluent syntax objects.
+     * @return CrudObjectGroup
      */
-    private function modelMethodHasParameters($model, $method)
+    public function group(...$objects)
     {
-        $reflectClassMethod = new \ReflectionMethod(get_class($model), $method);
-
-        if ($reflectClassMethod->getNumberOfParameters() > 0) {
-            return true;
-        }
-
-        return false;
+        return new CrudObjectGroup(...$objects);
     }
 }

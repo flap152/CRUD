@@ -2,6 +2,8 @@
 
 namespace Backpack\CRUD\app\Library\CrudPanel\Traits;
 
+use Illuminate\Support\Facades\DB;
+
 /**
  * Properties and methods for the Reorder operation.
  */
@@ -15,25 +17,79 @@ trait Reorder
      */
     public function updateTreeOrder($request)
     {
-        $count = 0;
         $primaryKey = $this->model->getKeyName();
 
-        \DB::beginTransaction();
-        foreach ($request as $key => $entry) {
-            if ($entry['item_id'] != '' && $entry['item_id'] != null) {
-                $item = $this->model->where($primaryKey, $entry['item_id'])->update([
-                    'parent_id' => empty($entry['parent_id']) ? null : $entry['parent_id'],
-                    'depth'     => empty($entry['depth']) ? null : $entry['depth'],
-                    'lft'       => empty($entry['left']) ? null : $entry['left'],
-                    'rgt'       => empty($entry['right']) ? null : $entry['right'],
-                ]);
+        $columns = $this->getOperationSetting('reorderColumnNames');
 
-                $count++;
+        // we use the upsert method that should update the values of the matching ids.
+        // it has the drawback of creating new entries when the id is not found
+        // for that reason we get a list of all the ids and filter the ones
+        // sent in the request that are not in the database
+        $itemKeys = $this->model->query()->select($primaryKey)->get()->pluck($primaryKey);
+
+        // filter the items that are not in the database and map the request
+        $reorderItems = collect($request)->filter(function ($item) use ($itemKeys) {
+            return $item['item_id'] !== '' && $item['item_id'] !== null && $itemKeys->contains($item['item_id']);
+        })->map(function ($item) use ($primaryKey, $columns) {
+            $item[$primaryKey] = $item['item_id'];
+            $item[$columns['parent_id']] = empty($item['parent_id']) ? null : $item['parent_id'];
+            $item[$columns['depth']] = empty($item['depth']) ? null : (int) $item['depth'];
+            $item[$columns['lft']] = empty($item['left']) ? null : (int) $item['left'];
+            $item[$columns['rgt']] = empty($item['right']) ? null : (int) $item['right'];
+
+            // unset mapped items properties.
+            if ($columns['parent_id'] !== 'parent_id') {
+                unset($item['parent_id']);
             }
-        }
-        \DB::commit();
+            if ($columns['depth'] !== 'depth') {
+                unset($item['depth']);
+            }
+            if ($columns['lft'] !== 'left') {
+                unset($item['left']);
+            }
+            if ($columns['rgt'] !== 'right') {
+                unset($item['right']);
+            }
 
-        return $count;
+            // unset the item_id property
+            unset($item['item_id']);
+
+            return $item;
+        })->toArray();
+
+        $sentIds = array_column($reorderItems, $primaryKey);
+
+        $itemKeys = $itemKeys->filter(function ($id) use ($sentIds) {
+            return in_array($id, $sentIds);
+        });
+
+        // wrap the queries in a transaction to avoid partial updates
+        DB::connection($this->model->getConnectionName())->transaction(function () use ($reorderItems, $primaryKey, $itemKeys, $columns) {
+            // create a string of ?,?,?,? to use as bind placeholders for item keys
+            $reorderItemsBindString = implode(',', array_fill(0, count($reorderItems), '?'));
+
+            // each of this properties will be updated using a single query with a CASE statement
+            // this ensures that only 4 queries are run, no matter how many items are reordered
+            foreach (array_values($columns) as $column) {
+                $query = '';
+                $bindings = [];
+                $query .= "UPDATE {$this->model->getTable()} SET {$column} = CASE ";
+                foreach ($reorderItems as $item) {
+                    $query .= "WHEN {$primaryKey} = ? THEN ? ";
+                    $bindings[] = $item[$primaryKey];
+                    $bindings[] = $item[$column];
+                }
+                // add the bind placeholders for the item keys at the end the array of bindings
+                array_push($bindings, ...$itemKeys->toArray());
+
+                // add the where clause to the query to help match the items
+                $query .= "ELSE {$column} END WHERE {$primaryKey} IN ({$reorderItemsBindString})";
+
+                DB::connection($this->model->getConnectionName())->statement($query, $bindings);
+            }
+        });
+
+        return count($reorderItems);
     }
 
     /**

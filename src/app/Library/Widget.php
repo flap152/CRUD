@@ -2,6 +2,8 @@
 
 namespace Backpack\CRUD\app\Library;
 
+use Backpack\CRUD\app\Exceptions\BackpackProRequiredException;
+use Backpack\CRUD\ViewNamespaces;
 use Illuminate\Support\Fluent;
 
 /**
@@ -9,7 +11,7 @@ use Illuminate\Support\Fluent;
  */
 class Widget extends Fluent
 {
-    protected $attributes = [];
+    public $attributes = [];
 
     public function __construct($attributes)
     {
@@ -35,7 +37,9 @@ class Widget extends Fluent
         // if that widget name already exists in the widgets collection
         // then pick up all widget attributes from that entry
         // and overwrite them with the ones passed in $attributes
-        if ($existingItem = self::collection()->firstWhere('name', $attributes['name'])) {
+        if ($existingItem = self::collection()->filter(function ($item) use ($attributes) {
+            return $item->attributes['name'] === $attributes['name'];
+        })->first()) {
             $attributes = array_merge($existingItem->attributes, $attributes);
         }
 
@@ -44,6 +48,28 @@ class Widget extends Fluent
         $attributes['type'] = $attributes['type'] ?? 'card';
 
         return new static($attributes);
+    }
+
+    /**
+     * Return the widget attribute value or null when it doesn't exist.
+     *
+     * @param  string  $attribute
+     * @return mixed
+     */
+    public function getAttribute(string $attribute)
+    {
+        return $this->attributes[$attribute] ?? null;
+    }
+
+    /**
+     * Check if widget has the attribute.
+     *
+     * @param  string  $attribute
+     * @return bool
+     */
+    public function hasAttribute(string $attribute)
+    {
+        return array_key_exists($attribute, $this->attributes);
     }
 
     /**
@@ -80,14 +106,62 @@ class Widget extends Fluent
         return $this;
     }
 
-    // TODO: add ability to push a widget right after another widget
+    /**
+     * Move this widget to appear right after another widget.
+     *
+     * @param  string  $destination  The name of the destination widget.
+     * @return Widget
+     */
     public function after($destination)
     {
+        $collection = $this->collection();
+
+        if (! $collection->has($destination)) {
+            return $this;
+        }
+
+        $target = $collection->pull($this->attributes['name']);
+        $offset = $collection->keys()->search($destination) + 1;
+
+        $newCollection = $collection->slice(0, $offset)
+            ->put($this->attributes['name'], $target)
+            ->union($collection->slice($offset));
+
+        $collection->forget($collection->keys()->toArray());
+        foreach ($newCollection->all() as $key => $value) {
+            $collection->put($key, $value);
+        }
+
+        return $this;
     }
 
-    // TODO: add ability to push a widget right before another widget
-    public function before($destionation)
+    /**
+     * Move this widget to appear right before another widget.
+     *
+     * @param  string  $destination  The name of the destination widget.
+     * @return Widget
+     */
+    public function before($destination)
     {
+        $collection = $this->collection();
+
+        if (! $collection->has($destination)) {
+            return $this;
+        }
+
+        $target = $collection->pull($this->attributes['name']);
+        $offset = $collection->keys()->search($destination);
+
+        $newCollection = $collection->slice(0, $offset)
+            ->put($this->attributes['name'], $target)
+            ->union($collection->slice($offset));
+
+        $collection->forget($collection->keys()->toArray());
+        foreach ($newCollection->all() as $key => $value) {
+            $collection->put($key, $value);
+        }
+
+        return $this;
     }
 
     /**
@@ -97,7 +171,7 @@ class Widget extends Fluent
      */
     public function makeFirst()
     {
-        $this->collection()->pull($this->name);
+        $this->collection()->pull($this->attributes['name']);
         $this->collection()->prepend($this);
 
         return $this;
@@ -110,10 +184,43 @@ class Widget extends Fluent
      */
     public function makeLast()
     {
-        $this->collection()->pull($this->name);
+        $this->collection()->pull($this->attributes['name']);
         $this->collection()->push($this);
 
         return $this;
+    }
+
+    /**
+     * Get an array of full paths to the widget view, consisting of:
+     * - the path given in the widget definition
+     * - fallback view paths as configured in backpack/config/base.php.
+     *
+     * @return array
+     */
+    public function getFinalViewPath()
+    {
+        if (isset($this->attributes['viewNamespace'])) {
+            $path = $this->attributes['viewNamespace'].'.'.$this->attributes['type'];
+
+            if (view()->exists($path)) {
+                return $path;
+            }
+        }
+        $type = $this->attributes['type'];
+        $paths = array_map(function ($item) use ($type) {
+            return $item.'.'.$type;
+        }, ViewNamespaces::getWithFallbackFor('widgets', 'backpack.ui.component_view_namespaces.widgets'));
+
+        foreach ($paths as $path) {
+            if (view()->exists($path)) {
+                return $path;
+            }
+        }
+        // if no view exists, in any of the directories above... no bueno
+        if (! backpack_pro()) {
+            throw new BackpackProRequiredException('Cannot find the widget view: '.$this->attributes['type'].'. Please check for typos.'.(backpack_pro() ? '' : ' If you are trying to use a PRO widget, please first purchase and install the backpack/pro addon from backpackforlaravel.com'), 1);
+        }
+        abort(500, 'Cannot find the view for «'.$this->attributes['type'].'» widget type. Please check for typos.', ['developer-error-exception']);
     }
 
     // -------
@@ -163,7 +270,7 @@ class Widget extends Fluent
      */
     public function remove()
     {
-        $this->collection()->pull($this->name);
+        $this->collection()->pull($this->attributes['name']);
 
         return $this;
     }
@@ -194,12 +301,13 @@ class Widget extends Fluent
      */
     private function save()
     {
-        $itemExists = $this->collection()->contains('name', $this->attributes['name']);
-
+        $itemExists = $this->collection()->filter(function ($item) {
+            return $item->attributes['name'] === $this->attributes['name'];
+        })->isNotEmpty();
         if (! $itemExists) {
             $this->collection()->put($this->attributes['name'], $this);
         } else {
-            $this->collection()[$this->name] = $this;
+            $this->collection()[$this->attributes['name']] = $this;
         }
 
         return $this;
@@ -223,7 +331,7 @@ class Widget extends Fluent
     }
 
     /**
-     * Dump and die. Duumps the current object to the screen,
+     * Dump and die. Dumps the current object to the screen,
      * so that the developer can see its contents, then stops
      * the execution.
      *
@@ -234,6 +342,29 @@ class Widget extends Fluent
         dd($this);
 
         return $this;
+    }
+
+    /**
+     * Overwritten methods to prevent BC in Laravel 11, since they introduced the `value()` method
+     * in their Fluent class. Although the Widget class is Fluent, it does not behave the same
+     * in regards to `value()`, since we use it as a key in widget definition.
+     */
+    public function value($value, $default = null)
+    {
+        $this->attributes['value'] = $value;
+
+        return $this->save();
+    }
+
+    #[\ReturnTypeWillChange]
+    public function offsetGet($offset): mixed
+    {
+        return $this->get($offset);
+    }
+
+    public function __get($key)
+    {
+        return $this->get($key);
     }
 
     // -------------

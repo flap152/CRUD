@@ -15,7 +15,7 @@ trait Settings
      * Getter for the settings key-value store.
      *
      * @param  string  $key  Usually operation.name (ex: list.exportButtons)
-     * @return mixed [description]
+     * @return mixed Setting value or null
      */
     public function get(string $key)
     {
@@ -26,7 +26,8 @@ trait Settings
      * Setter for the settings key-value store.
      *
      * @param  string  $key  Usually operation.name (ex: reorder.max_level)
-     * @param  string  $value  The value being set
+     * @param  mixed  $value  The value you want to store.
+     * @return mixed Setting value.
      */
     public function set(string $key, $value)
     {
@@ -95,12 +96,12 @@ trait Settings
      * Defaults to the current operation.
      *
      * @param  string  $key  Has no operation prepended. (ex: exportButtons)
-     * @return mixed [description]
+     * @return mixed Setting value or null
      */
     public function getOperationSetting(string $key, $operation = null)
     {
         $operation = $operation ?? $this->getCurrentOperation();
-
+//        dump($operation.'.'.$key, config('backpack.operations.list.defaultPageLength'));
         return $this->get($operation.'.'.$key) ?? config('backpack.crud.operations.'.$this->getCurrentOperation().'.'.$key) ?? null;
     }
 
@@ -109,7 +110,7 @@ trait Settings
      * Defaults to the current operation.
      *
      * @param  string  $key  Has no operation prepended. (ex: exportButtons)
-     * @return mixed [description]
+     * @return bool
      */
     public function hasOperationSetting(string $key, $operation = null)
     {
@@ -123,7 +124,7 @@ trait Settings
      * Defaults to the current operation.
      *
      * @param  string  $key  Has no operation prepended. (ex: max_level)
-     * @param  bool  $value  True/false depending on success.
+     * @param  mixed  $value  The value you want to store.
      */
     public function setOperationSetting(string $key, $value, $operation = null)
     {
@@ -141,7 +142,7 @@ trait Settings
     public function loadDefaultOperationSettingsFromConfig($configPath = null)
     {
         $operation = $this->getCurrentOperation();
-        $configPath = $configPath ?? 'backpack.crud.operations.'.$operation;
+        $configPath = $configPath ?? 'backpack.operations.'.$operation;
         $configSettings = config($configPath);
 
         if (is_array($configSettings) && count($configSettings)) {
@@ -149,5 +150,20 @@ trait Settings
                 $this->setOperationSetting($key, $value);
             }
         }
+    }
+
+    /**
+     * Get the current CRUD operations loaded.
+     *
+     * @return array operation names
+     */
+    private function getAvailableOperationsList(): array
+    {
+        return collect($this->settings)
+            ->keys()
+            ->filter(fn (string $key): bool => str_contains($key, '.access'))
+            ->map(fn (string $key): string => str_replace('.access', '', $key))
+            ->values()
+            ->toArray();
     }
 }

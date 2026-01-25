@@ -2,6 +2,9 @@
 
 namespace Backpack\CRUD\app\Library\CrudPanel;
 
+use Backpack\CRUD\app\Library\CrudPanel\Traits\Support\MacroableWithAttributes;
+use Illuminate\Support\Traits\Conditionable;
+
 /**
  * Adds fluent syntax to Backpack CRUD Columns.
  *
@@ -25,13 +28,26 @@ namespace Backpack\CRUD\app\Library\CrudPanel;
  * @method self visibleInExport(bool $value)
  * @method self visibleInShow(bool $value)
  * @method self priority(int $value)
+ * @method self key(string $value)
+ * @method self upload(bool $value)
+ * @method self linkTo(string $routeName, ?array $parameters = [])
  */
 class CrudColumn
 {
+    use Conditionable;
+    use MacroableWithAttributes;
+
     protected $attributes;
 
-    public function __construct($name)
+    public function __construct($nameOrDefinitionArray)
     {
+        if (is_array($nameOrDefinitionArray)) {
+            $column = $this->crud()->addAndReturnColumn($nameOrDefinitionArray);
+            $name = $column->getAttributes()['name'];
+        } else {
+            $name = $nameOrDefinitionArray;
+        }
+
         $column = $this->crud()->firstColumnWhere('name', $name);
 
         // if column exists
@@ -43,9 +59,6 @@ class CrudColumn
             // so at the very least set the name attribute
             $this->setAttributeValue('name', $name);
         }
-
-        // guess all attributes that weren't explicitly defined
-        $this->attributes = $this->crud()->makeSureColumnHasNeededAttributes($this->attributes);
 
         $this->save();
     }
@@ -64,6 +77,33 @@ class CrudColumn
     public static function name($name)
     {
         return new static($name);
+    }
+
+    /**
+     * Change the CrudColumn key.
+     *
+     * @param  string  $key  New key for the column
+     * @return CrudColumn
+     */
+    public function key(string $key)
+    {
+        if (! isset($this->attributes['name'])) {
+            abort(500, 'Column name must be defined before changing the key.', ['developer-error-exception']);
+        }
+
+        $columns = $this->crud()->columns();
+
+        $searchKey = $this->attributes['key'];
+        $column = $this->attributes;
+
+        if (isset($columns[$searchKey])) {
+            unset($columns[$searchKey]);
+            $column['key'] = $key;
+        }
+        $this->attributes = $column;
+        $this->crud()->setOperationSetting('columns', array_merge($columns, [$key => $column]));
+
+        return $this;
     }
 
     /**
@@ -103,6 +143,12 @@ class CrudColumn
         return $this;
     }
 
+    /** Alias of after() */
+    public function afterColumn(string $destinationColumn)
+    {
+        $this->after($destinationColumn);
+    }
+
     /**
      * Move the current column before another column.
      *
@@ -115,6 +161,32 @@ class CrudColumn
         $this->crud()->addColumn($this->attributes)->beforeColumn($destinationColumn);
 
         return $this;
+    }
+
+    public function upload($upload = true)
+    {
+        $this->attributes['upload'] = $upload;
+
+        return $this->save();
+    }
+
+    /**
+     * When subfields are defined, pass them through the guessing function
+     * so that they have label, relationship attributes, etc.
+     *
+     * @param  array  $subfields  Subfield definition array
+     * @return self
+     */
+    public function subfields($subfields)
+    {
+        $callAttributeMacro = ! isset($this->attributes['subfields']);
+        $this->attributes['subfields'] = $subfields;
+        $this->attributes = $this->crud()->makeSureColumnHasNeededAttributes($this->attributes);
+        if ($callAttributeMacro) {
+            $this->callRegisteredAttributeMacros();
+        }
+
+        return $this->save();
     }
 
     /**
@@ -151,6 +223,8 @@ class CrudColumn
      * Dump the current object to the screen,
      * so that the developer can see its contents.
      *
+     * @codeCoverageIgnore
+     *
      * @return CrudColumn
      */
     public function dump()
@@ -161,9 +235,11 @@ class CrudColumn
     }
 
     /**
-     * Dump and die. Duumps the current object to the screen,
+     * Dump and die. Dumps the current object to the screen,
      * so that the developer can see its contents, then stops
      * the execution.
+     *
+     * @codeCoverageIgnore
      *
      * @return CrudColumn
      */
@@ -172,6 +248,11 @@ class CrudColumn
         dd($this);
 
         return $this;
+    }
+
+    public function getAttributes()
+    {
+        return $this->attributes;
     }
 
     // ---------------
@@ -208,14 +289,27 @@ class CrudColumn
     private function save()
     {
         $key = $this->attributes['key'] ?? $this->attributes['name'];
-
         if ($this->crud()->hasColumnWhere('key', $key)) {
             $this->crud()->setColumnDetails($key, $this->attributes);
         } else {
             $this->crud()->addColumn($this->attributes);
+            $this->attributes = $this->getFreshAttributes();
         }
 
         return $this;
+    }
+
+    /**
+     * Get the fresh attributes for the current column.
+     *
+     * @return array
+     */
+    private function getFreshAttributes()
+    {
+        $key = isset($this->attributes['key']) ? 'key' : 'name';
+        $search = $this->attributes['key'] ?? $this->attributes['name'];
+
+        return $this->crud()->firstColumnWhere($key, $search);
     }
 
     // -------------
@@ -235,6 +329,10 @@ class CrudColumn
      */
     public function __call($method, $parameters)
     {
+        if (static::hasMacro($method)) {
+            return $this->macroCall($method, $parameters);
+        }
+
         $this->setAttributeValue($method, $parameters[0]);
 
         return $this->save();

@@ -121,7 +121,7 @@ return [
     // JS files that are loaded in all pages, using Laravel's asset() helper
     'scripts' => [
         // Backstrap includes jQuery, Bootstrap, CoreUI, PNotify, Popper
-        'packages/backpack/base/js/bundle.js',
+//        'packages/backpack/base/js/bundle.js',
 
         // examples (everything inside the bundle, loaded from CDN)
         // 'https://code.jquery.com/jquery-3.4.1.min.js',
@@ -150,7 +150,7 @@ return [
     // All JS and CSS assets defined above have this string appended as query string (?v=string).
     // If you want to manually trigger cachebusting for all styles and scripts,
     // append or prepend something to the string below, so that it's different.
-    'cachebusting_string' => \Composer\InstalledVersions::getVersion('backpack/crud'),
+//    'cachebusting_string' => \Composer\InstalledVersions::getVersion('backpack/crud'),
 
     /*
     |--------------------------------------------------------------------------
@@ -244,6 +244,7 @@ return [
     'middleware_class' => [
         App\Http\Middleware\CheckIfAdmin::class,
         \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
+        \Backpack\CRUD\app\Http\Middleware\AuthenticateSession::class,
         // \Backpack\CRUD\app\Http\Middleware\UseBackpackAuthGuardInsteadOfDefaultAuthGuard::class,
     ],
 
@@ -272,6 +273,11 @@ return [
     // - example_method_name (specify the method on the User model that returns the URL)
     'avatar_type' => 'gravatar',
 
+	    // Gravatar fallback options are 'identicon', 'monsterid', 'wavatar', 'retro', 'robohash', 'blank'
+    // 'blank' will keep the generic image with the user first letter
+    'gravatar_fallback' => 'blank',
+
+
     /*
     |--------------------------------------------------------------------------
     | Theme (User Interface)
@@ -282,7 +288,7 @@ return [
     // and choosing that view_namespace instead of the default one. Backpack will load a file from there
     // if it exists, otherwise it will load it from the default namespace ("backpack::").
 
-    'view_namespace' => 'backpack::',
+//    'view_namespace' => 'backpack::',
 
     // EXAMPLE: if you create a new folder in resources/views/vendor/myname/mypackage,
     // your namespace would be the one below. IMPORTANT: in this case the namespace ends with a dot.
@@ -301,6 +307,18 @@ return [
     // You can rename this disk here. Default: root
     'root_disk_name' => 'root',
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | Application
+    |--------------------------------------------------------------------------
+    */
+
+    // Should we use DB transactions when executing multiple queries? For example when creating an entry and it's relationships.
+    // By wrapping in a database transaction you ensure that either all queries went ok, or if some failed the whole process
+    // is rolled back and considered failed. This is a good setting for data integrity.
+    'useDatabaseTransactions' => false,
+
     /*
     |--------------------------------------------------------------------------
     | License Code
@@ -316,4 +334,7 @@ return [
     */
 
     'license_code' => env('BACKPACK_LICENSE', false),
+    'token_username' => env('BACKPACK_LICENSE', false),
+//   'token_username' => env('BACKPACK_TOKEN_USERNAME', false),
+
 ];

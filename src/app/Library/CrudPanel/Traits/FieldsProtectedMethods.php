@@ -69,7 +69,7 @@ trait FieldsProtectedMethods
      */
     public function overwriteFieldNameFromDotNotationToArray($field)
     {
-        if (! is_array($field['name']) && strpos($field['name'], '.') !== false) {
+        if (strpos($field['name'], '.') !== false) {
             $entity_array = explode('.', $field['name']);
             $name_string = '';
 
@@ -84,6 +84,21 @@ trait FieldsProtectedMethods
     }
 
     /**
+     * Run the field name overwrite in multiple fields.
+     *
+     * @param  array  $fields
+     * @return array
+     */
+    public function overwriteFieldNamesFromDotNotationToArray($fields)
+    {
+        foreach ($fields as $key => $field) {
+            $fields[$key] = $this->overwriteFieldNameFromDotNotationToArray($field);
+        }
+
+        return $fields;
+    }
+
+    /**
      * If the field_definition_array array is a string, it means the programmer was lazy
      * and has only passed the name of the field. Turn that into a proper array.
      *
@@ -92,13 +107,23 @@ trait FieldsProtectedMethods
      */
     protected function makeSureFieldHasName($field)
     {
+        if (empty($field)) {
+            abort(500, 'Field name can\'t be empty', ['developer-error-exception']);
+        }
+
         if (is_string($field)) {
-            return ['name' => $field];
+            return ['name' => Str::replace(' ', '', $field)];
         }
 
         if (is_array($field) && ! isset($field['name'])) {
-            abort(500, 'All fields must have their name defined');
+            abort(500, 'All fields must have their name defined', ['developer-error-exception']);
         }
+
+        if (is_array($field['name'])) {
+            abort(500, 'Field name can\'t be an array. It should be a string. Error in field: '.json_encode($field['name']), ['developer-error-exception']);
+        }
+
+        $field['name'] = Str::replace(' ', '', $field['name']);
 
         return $field;
     }
@@ -108,30 +133,33 @@ trait FieldsProtectedMethods
      * try to determine the method on the model that defines the relationship, and pass it to
      * the field as 'entity'.
      *
-     * @param  [type] $field [description]
-     * @return [type]        [description]
+     * @param  array  $field
+     * @return array
      */
     protected function makeSureFieldHasEntity($field)
     {
+        $model = isset($field['baseModel']) ? (new $field['baseModel']) : $this->getModel();
+
         if (isset($field['entity'])) {
             return $field;
         }
 
-        // if the name is an array it's definitely not a relationship
-        if (is_array($field['name'])) {
-            return $field;
-        }
+        // by default, entity is false if we cannot link it with guessing functions to a relation
+        $field['entity'] = false;
 
         //if the name is dot notation we are sure it's a relationship
         if (strpos($field['name'], '.') !== false) {
-            $field['entity'] = $field['name'];
+            $possibleMethodName = Str::of($field['name'])->before('.')->value();
+            // check model method for possibility of being a relationship
+            $field['entity'] = $this->modelMethodIsRelationship($model, $possibleMethodName) ? $field['name'] : false;
 
             return $field;
         }
 
         // if there's a method on the model with this name
-        if (method_exists($this->model, $field['name'])) {
-            $field['entity'] = $field['name'];
+        if (method_exists($model, $field['name']) || $model->isRelation($field['name'])) {
+            // check model method for possibility of being a relationship
+            $field['entity'] = $this->modelMethodIsRelationship($model, $field['name']);
 
             return $field;
         }
@@ -141,8 +169,9 @@ trait FieldsProtectedMethods
         if (Str::endsWith($field['name'], '_id')) {
             $possibleMethodName = Str::replaceLast('_id', '', $field['name']);
 
-            if (method_exists($this->model, $possibleMethodName)) {
-                $field['entity'] = $possibleMethodName;
+            if (method_exists($model, $possibleMethodName)) {
+                // check model method for possibility of being a relationship
+                $field['entity'] = $this->modelMethodIsRelationship($model, $possibleMethodName);
 
                 return $field;
             }
@@ -151,36 +180,21 @@ trait FieldsProtectedMethods
         return $field;
     }
 
-    protected function overwriteFieldNameFromEntity($field)
-    {
-        // if the entity doesn't have a dot, it means we don't need to overwrite the name
-        if (! Str::contains($field['entity'], '.')) {
-            return $field;
-        }
-
-        // only 1-1 relationships are supported, if it's anything else, abort
-        if ($field['relation_type'] != 'HasOne') {
-            return $field;
-        }
-
-        if (count(explode('.', $field['entity'])) == count(explode('.', $this->getOnlyRelationEntity($field)))) {
-            $field['name'] = implode('.', array_slice(explode('.', $field['entity']), 0, -1));
-            $relation = $this->getRelationInstance($field);
-            if (! empty($field['name'])) {
-                $field['name'] .= '.';
-            }
-            $field['name'] .= $relation->getForeignKeyName();
-        }
-
-        return $field;
-    }
-
     protected function makeSureFieldHasAttribute($field)
     {
+        if (isset($field['entity']) && $field['entity']) {
+            // if the user setup the attribute in relation string, we are not going to infer that attribute from model
+            // instead we get the defined attribute by the user.
+            if ($this->isAttributeInRelationString($field)) {
+                $field['attribute'] = $field['attribute'] ?? Str::afterLast($field['entity'], '.');
+
+                return $field;
+            }
+        }
         // if there's a model defined, but no attribute
         // guess an attribute using the identifiableAttribute functionality in CrudTrait
         if (isset($field['model']) && ! isset($field['attribute']) && method_exists($field['model'], 'identifiableAttribute')) {
-            $field['attribute'] = call_user_func([(new $field['model']), 'identifiableAttribute']);
+            $field['attribute'] = (new $field['model']())->identifiableAttribute();
         }
 
         return $field;
@@ -196,7 +210,7 @@ trait FieldsProtectedMethods
     protected function makeSureFieldHasLabel($field)
     {
         if (! isset($field['label'])) {
-            $name = is_array($field['name']) ? $field['name'][0] : $field['name'];
+            $name = str_replace(',', ' ', $field['name']);
             $name = str_replace('_id', '', $name);
             $field['label'] = mb_ucfirst(str_replace('_', ' ', $name));
         }
@@ -214,7 +228,129 @@ trait FieldsProtectedMethods
     protected function makeSureFieldHasType($field)
     {
         if (! isset($field['type'])) {
-            $field['type'] = isset($field['relation_type']) ? $this->inferFieldTypeFromFieldRelation($field) : $this->inferFieldTypeFromDbColumnType($field['name']);
+            $field['type'] = isset($field['relation_type']) ? $this->inferFieldTypeFromRelationType($field['relation_type']) : $this->inferFieldTypeFromDbColumnType($field['name']);
+        }
+
+        return $field;
+    }
+
+    protected function inferFieldTypeFromRelationType($relationType)
+    {
+        if (backpack_pro()) {
+            return 'relationship';
+        }
+
+        switch ($relationType) {
+            case 'BelongsTo':
+                return 'select';
+            case 'BelongsToMany':
+            case 'MorphToMany':
+                return 'select_multiple';
+            default:
+                return 'text';
+        }
+    }
+
+    /**
+     * If a field has subfields, go through each subfield and guess
+     * its attribute, filling in whatever is missing.
+     *
+     * @param  array  $field  Field definition array.
+     * @return array The improved definition of that field (a better 'subfields' array)
+     */
+    protected function makeSureSubfieldsHaveNecessaryAttributes($field)
+    {
+        if (! isset($field['subfields']) || ! is_array($field['subfields'])) {
+            return $field;
+        }
+
+        if (! is_multidimensional_array($field['subfields'], true)) {
+            abort(500, 'Subfields of «'.$field['name'].'» are malformed. Make sure you provide an array of subfields.', ['developer-error-exception']);
+        }
+
+        foreach ($field['subfields'] as $key => $subfield) {
+            if (empty($subfield) || ! isset($subfield['name'])) {
+                abort(500, 'A subfield of «'.$field['name'].'» is malformed. Subfield attribute name can\'t be empty.', ['developer-error-exception']);
+            }
+
+            // make sure the field definition is an array
+            if (is_string($subfield)) {
+                $subfield = ['name' => $subfield];
+            }
+
+            $subfield['name'] = Str::replace(' ', '', $subfield['name']);
+
+            $subfield['parentFieldName'] = $field['name'];
+            $subfield['baseFieldName'] = is_array($subfield['name']) ? implode(',', $subfield['name']) : $subfield['name'];
+            $subfield['baseFieldName'] = Str::afterLast($subfield['baseFieldName'], '.');
+
+            if (! isset($field['model'])) {
+                // we're inside a simple 'repeatable' with no model/relationship, so
+                // we assume all subfields are supposed to be text fields
+                $subfield['type'] = $subfield['type'] ?? 'text';
+                $subfield['entity'] = $subfield['entity'] ?? false;
+            } else {
+                // we should use 'model' as the `baseModel` for all subfields, so that when
+                // we look if `category()` relationship exists on the model, we look on
+                // the model this repeatable represents, not the main CRUD model
+                $currentEntity = $subfield['baseEntity'] ?? $field['entity'];
+                $subfield['baseModel'] = $subfield['baseModel'] ?? $field['model'];
+                $subfield['baseEntity'] = isset($field['baseEntity']) ? $field['baseEntity'].'.'.$currentEntity : $currentEntity;
+            }
+
+            $field['subfields'][$key] = $this->makeSureFieldHasNecessaryAttributes($subfield);
+        }
+
+        // when field has any of `many` relations we need to append either the pivot selector for the `ToMany` or the
+        // local key for the `many` relations. Other relations don't need any special treatment when used as subfields.
+        if (isset($field['relation_type'])) {
+            switch ($field['relation_type']) {
+                case 'MorphToMany':
+                case 'BelongsToMany':
+                    $pivotSelectorField = static::getPivotFieldStructure($field);
+
+                    $pivot = Arr::where($field['subfields'], function ($item) use ($pivotSelectorField) {
+                        return $item['name'] === $pivotSelectorField['name'];
+                    });
+
+                    if (! empty($pivot)) {
+                        break;
+                    }
+
+                    if ($field['allow_duplicate_pivots'] ?? false) {
+                        $pivotSelectorField['allow_duplicate_pivots'] = true;
+                        $field['subfields'] = Arr::prepend($field['subfields'], [
+                            'name' => $field['pivot_key_name'] ?? 'id',
+                            'type' => 'hidden',
+                            'wrapper' => [
+                                'class' => 'd-none',
+                            ],
+                        ]);
+                    }
+
+                    $this->setupFieldValidation($pivotSelectorField, $field['name']);
+                    $field['subfields'] = Arr::prepend($field['subfields'], $pivotSelectorField);
+
+                    break;
+                case 'MorphMany':
+                case 'HasMany':
+                    $entity = isset($field['baseEntity']) ? $field['baseEntity'].'.'.$field['entity'] : $field['entity'];
+                    $relationInstance = $this->getRelationInstance(['entity' => $entity]);
+
+                    $localKeyField = Arr::where($field['subfields'], function ($item) use ($relationInstance) {
+                        return $item['name'] === $relationInstance->getRelated()->getKeyName();
+                    });
+
+                    if (! empty($localKeyField)) {
+                        break;
+                    }
+
+                    $field['subfields'] = Arr::prepend($field['subfields'], [
+                        'name' => $relationInstance->getRelated()->getKeyName(),
+                        'type' => 'hidden',
+                    ]);
+                    break;
+            }
         }
 
         return $field;
@@ -243,10 +379,8 @@ trait FieldsProtectedMethods
      */
     protected function addFieldToOperationSettings($field)
     {
-        $fieldKey = $this->getFieldKey($field);
-
         $allFields = $this->getOperationSetting('fields');
-        $allFields = Arr::add($this->fields(), $fieldKey, $field);
+        $allFields = array_merge($this->getCleanStateFields(), [$field['name'] => $field]);
 
         $this->setOperationSetting('fields', $allFields);
     }
@@ -255,19 +389,10 @@ trait FieldsProtectedMethods
      * Get the string that should be used as an array key, for the attributive array
      * where the fields are stored for the current operation.
      *
-     * The array key for the field should be:
-     * - name (if the name is a string)
-     * - name1_name2_name3 (if the name is an array)
-     *
-     * @param  array  $field  Field definition array.
-     * @return string The string that should be used as array key.
+     * @deprecated v6
      */
-    protected function getFieldKey($field)
+    protected function getFieldKey(array $field): string
     {
-        if (is_array($field['name'])) {
-            return implode('_', $field['name']);
-        }
-
         return $field['name'];
     }
 }

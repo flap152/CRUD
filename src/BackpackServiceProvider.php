@@ -2,17 +2,22 @@
 
 namespace Backpack\CRUD;
 
+use Backpack\Basset\Facades\Basset;
 use Backpack\CRUD\app\Http\Middleware\ThrottlePasswordRecovery;
 use Backpack\CRUD\app\Library\CrudPanel\CrudPanel;
 use Backpack\CRUD\app\Library\Database\DatabaseSchema;
-use Backpack\CRUD\CrudPanelManager;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
+use Illuminate\View\Compilers\BladeCompiler;
 
 class BackpackServiceProvider extends ServiceProvider
 {
-    use LicenseCheck;
+//    use LicenseCheck;
     use Stats;
 
     protected $commands = [
@@ -45,7 +50,7 @@ class BackpackServiceProvider extends ServiceProvider
      */
     public function boot(Router $router)
     {
-        $this->loadViewsWithFallbacks();
+//        $this->loadViewsWithFallbacks();
         $this->loadTranslationsFrom(realpath(__DIR__.'/resources/lang'), 'backpack');
         $this->loadConfigs();
         $this->registerMiddlewareGroup($this->app->router);
@@ -54,6 +59,27 @@ class BackpackServiceProvider extends ServiceProvider
         $this->publishFiles();
 //        $this->checkLicenseCodeExists(); // absent in v7
         $this->sendUsageStats();
+        Basset::addViewPath(realpath(__DIR__.'/resources/views'));
+
+        foreach (config('backpack.ui.styles', []) as $style) {
+            if (is_array($style)) {
+                foreach ($style as $file) {
+                    Basset::map($file, $file);
+                }
+            } else {
+                Basset::map($style, $style);
+            }
+        }
+
+        foreach (config('backpack.ui.scripts', []) as $script) {
+            if (is_array($script)) {
+                foreach ($script as $file) {
+                    Basset::map($file, $file);
+                }
+            } else {
+                Basset::map($script, $script);
+            }
+        }
     }
 
     /**
@@ -66,25 +92,36 @@ class BackpackServiceProvider extends ServiceProvider
         // load the macros
         include_once __DIR__.'/macros.php';
 
+        $this->loadViewsWithFallbacks('crud');
+        $this->loadViewsWithFallbacks('ui', 'backpack.ui');
+//        $this->loadViewsWithFallbacks('base', 'backpack');
+        $this->loadViewNamespace('widgets', 'backpack.ui::widgets');
+        ViewNamespaces::addFor('widgets', 'crud::widgets');
+        $this->loadViewComponents();
+        $this->registerDynamicBladeComponents();
+		
+        $this->registerBackpackErrorViews();
+        $this->app->bind('crud', function ($app) {
+            return $app->make('CrudManager')->identifyCrudPanel();
+            return CrudManager::identifyCrudPanel();
+        });
+
         // Register the CrudPanelManager as a scoped singleton (fresh per request)
         $this->app->scoped('CrudManager', function ($app) {
             return new CrudPanelManager();
         });
 
-        // Bind 'crud' to dynamically resolve the correct CrudPanel from the manager
-        // This allows multiple controllers to have their own CrudPanel instances
-        $this->app->bind('crud', function ($app) {
-            return $app->make('CrudManager')->identifyCrudPanel();
-        });
 
         $this->app->scoped('DatabaseSchema', function ($app) {
             return new DatabaseSchema();
         });
 
-// unused from v7
-//        $this->app->singleton('BackpackViewNamespaces', function ($app) {
-//            return new ViewNamespaces();
-//        });
+        $this->app->scoped('BackpackLifecycleHooks', function ($app) {
+            return new app\Library\CrudPanel\Hooks\LifecycleHooks();
+        });
+        $this->app->singleton('BackpackViewNamespaces', function ($app) {
+            return new ViewNamespaces();
+        });
 
         // Bind the widgets collection object to Laravel's service container
         $this->app->singleton('widgets', function ($app) {
@@ -136,6 +173,7 @@ class BackpackServiceProvider extends ServiceProvider
 
         // sidebar content views, which are the only views most people need to overwrite
         $backpack_menu_contents_view = [
+            __DIR__.'/resources/views/ui/inc/menu_items.blade.php' => resource_path('views/vendor/backpack/ui/inc/menu_items.blade.php'),
             __DIR__.'/resources/views/base/inc/sidebar_content.blade.php'      => resource_path('views/vendor/backpack/base/inc/sidebar_content.blade.php'),
             __DIR__.'/resources/views/base/inc/topbar_left_content.blade.php'  => resource_path('views/vendor/backpack/base/inc/topbar_left_content.blade.php'),
             __DIR__.'/resources/views/base/inc/topbar_right_content.blade.php' => resource_path('views/vendor/backpack/base/inc/topbar_right_content.blade.php'),
@@ -249,36 +287,39 @@ class BackpackServiceProvider extends ServiceProvider
 //        });
 //    }
 
-    public function loadViewsWithFallbacks()
+    public function loadViewNamespace($domain, $namespace)
     {
-        $customBaseFolder = resource_path('views/vendor/backpack/base');
-        $customCrudFolder = resource_path('views/vendor/backpack/crud');
-
-        // - first the published/overwritten views (in case they have any changes)
-        if (file_exists($customBaseFolder)) {
-            $this->loadViewsFrom($customBaseFolder, 'backpack');
-        }
-        if (file_exists($customCrudFolder)) {
-            $this->loadViewsFrom($customCrudFolder, 'crud');
-        }
-        // - then the stock views that come with the package, in case a published view might be missing
-        $this->loadViewsFrom(realpath(__DIR__.'/resources/views/base'), 'backpack');
-        $this->loadViewsFrom(realpath(__DIR__.'/resources/views/crud'), 'crud');
+        ViewNamespaces::addFor($domain, $namespace);
     }
 
-    protected function mergeConfigFromOperationsDirectory()
-    {
-        $operationConfigs = scandir(__DIR__.'/config/backpack/operations/');
-        $operationConfigs = array_diff($operationConfigs, ['.', '..']);
 
-        if (! count($operationConfigs)) {
+    public function loadViewsWithFallbacks($dir, $namespace = null)
+    {
+        $customFolder = resource_path('views/vendor/backpack/'.$dir);
+        $vendorFolder = realpath(__DIR__.'/resources/views/'.$dir);
+        $namespace = $namespace ?? $dir;
+
+        // first the published/overwritten views (in case they have any changes)
+        if (file_exists($customFolder)) {
+            $this->loadViewsFrom($customFolder, $namespace);
+        }
+        // then the stock views that come with the package, in case a published view might be missing
+        $this->loadViewsFrom($vendorFolder, $namespace);
+    }
+
+    protected function mergeConfigsFromDirectory($dir)
+    {
+        $configs = scandir(__DIR__."/config/backpack/$dir/");
+        $configs = array_diff($configs, ['.', '..']);
+
+        if (! count($configs)) {
             return;
         }
 
-        foreach ($operationConfigs as $configFile) {
+        foreach ($configs as $configFile) {
             $this->mergeConfigFrom(
-                __DIR__.'/config/backpack/operations/'.$configFile,
-                'backpack.operations.'.substr($configFile, 0, strrpos($configFile, '.'))
+                __DIR__."/config/backpack/$dir/$configFile",
+                "backpack.$dir.".substr($configFile, 0, strrpos($configFile, '.'))
             );
         }
     }
@@ -288,7 +329,8 @@ class BackpackServiceProvider extends ServiceProvider
         // use the vendor configuration file as fallback
         $this->mergeConfigFrom(__DIR__.'/config/backpack/crud.php', 'backpack.crud');
         $this->mergeConfigFrom(__DIR__.'/config/backpack/base.php', 'backpack.base');
-//        $this->mergeConfigFromOperationsDirectory(); // from v7 operations changes
+        $this->mergeConfigFrom(__DIR__.'/config/backpack/ui.php', 'backpack.ui');
+        $this->mergeConfigsFromDirectory('operations');
 
         // add the root disk to filesystem configuration
         app()->config['filesystems.disks.'.config('backpack.base.root_disk_name')] = [
@@ -337,6 +379,44 @@ class BackpackServiceProvider extends ServiceProvider
         ];
     }
 
+    public function loadViewComponents()
+    {
+        $this->app->afterResolving(BladeCompiler::class, function () {
+            Blade::componentNamespace('Backpack\\CRUD\\app\\View\\Components', 'backpack');
+        });
+    }
+
+    /**
+     * Register dynamic Blade components from the Components directory.
+     *
+     * Any Blade component classes that are in that directory will be registered
+     * as dynamic components with the 'bp-{component-name}' prefix.
+     */
+    private function registerDynamicBladeComponents()
+    {
+        $path = __DIR__.'/app/View/Components';
+        $namespace = 'Backpack\\CRUD\\app\\View\\Components';
+
+        if (! is_dir($path)) {
+            return;
+        }
+
+        foreach (File::allFiles($path) as $file) {
+            $relativePath = str_replace(
+                ['/', '.php'],
+                ['\\', ''],
+                Str::after($file->getRealPath(), realpath($path).DIRECTORY_SEPARATOR)
+            );
+
+            $class = $namespace.'\\'.$relativePath;
+
+            // Check if the class exists and is a subclass of Illuminate\View\Component
+            // This ensures that only valid Blade components are registered.
+            if (class_exists($class) && is_subclass_of($class, \Illuminate\View\Component::class)) {
+                Blade::component('bp-'.Str::kebab(class_basename($class)), $class);
+            }
+        }
+    }
     /**
      * Load the Backpack helper methods, for convenience.
      */
@@ -352,6 +432,42 @@ class BackpackServiceProvider extends ServiceProvider
      */
     public function provides()
     {
-        return ['crud', 'CrudManager', 'widgets', /*'BackpackViewNamespaces', 'DatabaseSchema'*/];
+        return ['widgets', 'BackpackViewNamespaces', 'DatabaseSchema', 'UploadersRepository', 'CrudManager'];
+    }
+
+    private function registerBackpackErrorViews()
+    {
+        // register the backpack error when the exception handler is resolved from the container
+        $this->callAfterResolving(ExceptionHandler::class, function ($handler) {
+            if (! Str::startsWith(request()->path(), config('backpack.base.route_prefix'))) {
+                return;
+            }
+
+            // parse the namespaces set in config
+            [$themeNamespace, $themeFallbackNamespace] = (function () {
+                $themeNamespace = config('backpack.ui.view_namespace');
+                $themeFallbackNamespace = config('backpack.ui.view_namespace_fallback');
+
+                return [
+                    Str::endsWith($themeNamespace, '::') ? substr($themeNamespace, 0, -2) : substr($themeNamespace, 0, -1),
+                    Str::endsWith($themeFallbackNamespace, '::') ? substr($themeFallbackNamespace, 0, -2) : substr($themeFallbackNamespace, 0, -1),
+                ];
+            })();
+
+            $viewFinderHints = app('view')->getFinder()->getHints();
+
+            // here we are going to generate the paths array containing:
+            // - theme paths
+            // - fallback theme paths
+            // - ui path
+            $themeErrorPaths = $viewFinderHints[$themeNamespace] ?? [];
+            $themeErrorPaths = $themeNamespace === $themeFallbackNamespace ? $themeErrorPaths :
+                array_merge($viewFinderHints[$themeFallbackNamespace] ?? [], $themeErrorPaths);
+            $uiErrorPaths = [base_path('vendor/backpack/crud/src/resources/views/ui')];
+            $themeErrorPaths = array_merge($themeErrorPaths, $uiErrorPaths);
+
+            // merge the paths array with the view.paths defined in the application
+            app('config')->set('view.paths', array_merge($themeErrorPaths, config('view.paths', [])));
+        });
     }
 }

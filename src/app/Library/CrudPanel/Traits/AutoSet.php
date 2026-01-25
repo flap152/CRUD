@@ -4,6 +4,8 @@ namespace Backpack\CRUD\app\Library\CrudPanel\Traits;
 
 trait AutoSet
 {
+    protected $autoset = [];
+
     /**
      * For a simple CRUD Panel, there should be no need to add/define the fields.
      * The public columns in the database will be converted to be fields.
@@ -12,36 +14,33 @@ trait AutoSet
      */
     public function setFromDb($setFields = true, $setColumns = true)
     {
-//        if ($this->driverIsSql()) {
-            $this->getDbColumnTypes();
-//        }
+        $this->getDbColumnTypes();
 
         array_map(function ($field) use ($setFields, $setColumns) {
-//            if ($setFields && ! isset($this->fields()[$field])) {
             if ($setFields && ! isset($this->getCleanStateFields()[$field])) {
                 $this->addField([
-                    'name'       => $field,
-                    'label'      => $this->makeLabel($field),
-                    'value'      => null,
-                    'default'    => isset($this->autoset['db_column_types'][$field]['default']) ? $this->autoset['db_column_types'][$field]['default'] : null,
-                    'type'       => $this->inferFieldTypeFromDbColumnType($field),
-                    'values'     => [],
+                    'name' => $field,
+                    'label' => $this->makeLabel($field),
+                    'value' => null,
+                    'default' => isset($this->autoset['db_column_types'][$field]['default']) ? $this->autoset['db_column_types'][$field]['default'] : null,
+                    'type' => $this->inferFieldTypeFromDbColumnType($field),
+                    'values' => [],
                     'attributes' => [],
-                    'autoset'    => true,
+                    'autoset' => true,
                 ]);
             }
 
-            if ($setColumns && ! in_array($field, $this->model->getHidden()) && ! isset($this->columns()[$field])) {
+            if ($setColumns && ! in_array($field, $this->getModel()->getHidden()) && ! isset($this->columns()[$field])) {
                 $this->addColumn([
-                    'name'    => $field,
-                    'label'   => $this->makeLabel($field),
-                    'type'    => $this->inferFieldTypeFromDbColumnType($field),
+                    'name' => $field,
+                    'label' => $this->makeLabel($field),
+                    'type' => $this->inferFieldTypeFromDbColumnType($field),
                     'autoset' => true,
                 ]);
             }
         }, $this->getDbColumnsNames());
 
-        unset($this->autoset);
+        $this->autoset = [];
     }
 
     /**
@@ -51,26 +50,34 @@ trait AutoSet
      */
     public function getDbColumnTypes()
     {
-//        $this->setDoctrineTypesMapping();
-
         $dbColumnTypes = [];
 
         if (! $this->driverIsSql()) {
             return $dbColumnTypes;
         }
-        // dd($this->getDbTableColumns());
-        foreach ($this->getDbTableColumns() as $key => $column) {
-//            $column_type = $column['type_name'];
+        $dbColumns = $this->getDbTableColumns();
+
+        foreach ($dbColumns as $key => $column) {
             $column_type = $column->getType()->getName();
-//            $dbColumnTypes[$column['name']]['type'] = trim(preg_replace('/\(\d+\)(.*)/i', '', $column_type));
             $dbColumnTypes[$column->getName()]['type'] = trim(preg_replace('/\(\d+\)(.*)/i', '', $column_type));
-//            $dbColumnTypes[$column['name']]['default'] = $column['default'];
             $dbColumnTypes[$column->getName()]['default'] = $column->getDefault();
         }
-//        dump($dbColumnTypes);
+
         $this->autoset['db_column_types'] = $dbColumnTypes;
 
         return $dbColumnTypes;
+    }
+
+    /**
+     * Set extra types mapping on model.
+     *
+     * DEPRECATION NOTICE: This method is no longer used and will be removed in future versions of Backpack
+     *
+     * @deprecated
+     */
+    public function setDoctrineTypesMapping()
+    {
+        $this->getModel()->getConnectionWithExtraTypeMappings();
     }
 
     /**
@@ -83,7 +90,6 @@ trait AutoSet
         if (isset($this->autoset['table_columns']) && $this->autoset['table_columns']) {
             return $this->autoset['table_columns'];
         }
-
         $this->autoset['table_columns'] = $this->model::getDbTableSchema()->getColumns();
 
         return $this->autoset['table_columns'];
@@ -128,15 +134,13 @@ trait AutoSet
             case 'set':
                 return 'text';
 
-            // case 'enum':
+                // case 'enum':
             //     return 'enum';
-            // break;
+                // break;
 
             case 'boolean':
-                return 'boolean';
-
             case 'tinyint':
-                return 'active';
+                return 'boolean';
 
             case 'text':
             case 'mediumtext':
@@ -154,26 +158,13 @@ trait AutoSet
                 return 'time';
 
             case 'json':
-                return 'table';
-//                return backpack_pro() ? 'table' : 'textarea';
+                return backpack_pro() ? 'table' : 'textarea';
 
             default:
                 return 'text';
         }
 
         return 'text';
-    }
-
-    // Fix for DBAL not supporting enum
-    public function setDoctrineTypesMapping()
-    {
-        $types = ['enum' => 'string'];
-        $platform = $this->getSchema()->getConnection()->getDoctrineSchemaManager()->getDatabasePlatform();
-        foreach ($types as $type_key => $type_value) {
-            if (! $platform->hasDoctrineTypeMappingFor($type_key)) {
-                $platform->registerDoctrineTypeMapping($type_key, $type_value);
-            }
-        }
     }
 
     /**

@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 trait HasRelationshipFields
 {
     /**
-     * Register aditional types in doctrine schema manager for the current connection.
+     * Register additional types in doctrine schema manager for the current connection.
      *
      * @return DB
      */
@@ -127,14 +127,14 @@ trait HasRelationshipFields
         $table = $instance->getTableWithPrefix();
 
         return [$conn, $table];
-        }
+    }
 
     public static function getDbTableSchema()
     {
         [$connection, $table] = self::getConnectionAndTable();
 
         return new TableSchema($connection->getName(), $table);
-        }
+    }
 
     private static function isSqlConnection()
     {

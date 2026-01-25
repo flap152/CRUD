@@ -2,8 +2,9 @@
 
 namespace Backpack\CRUD\app\Library\CrudPanel\Traits;
 
+use Backpack\CRUD\ViewNamespaces;
 use Carbon\Carbon;
-use Validator;
+use Illuminate\Support\Facades\Validator;
 
 trait Search
 {
@@ -24,7 +25,7 @@ trait Search
         return $this->query->where(function ($query) use ($searchTerm) {
             foreach ($this->columns() as $column) {
                 if (! isset($column['type'])) {
-                    abort(400, 'Missing column type when trying to apply search term.');
+                    abort(500, 'Missing column type when trying to apply search term.', ['developer-error-exception']);
                 }
 
                 $this->applySearchLogicForColumn($query, $column, $searchTerm);
@@ -44,7 +45,7 @@ trait Search
             $searchLogic = $column['searchLogic'];
 
             // if a closure was passed, execute it
-            if (is_callable($searchLogic)) {
+            if ($searchLogic instanceof \Closure) {
                 return $searchLogic($query, $column, $searchTerm);
             }
 
@@ -54,18 +55,20 @@ trait Search
             }
 
             // if false was passed, don't search this column
-            if ($searchLogic == false) {
+            if ($searchLogic === false) {
                 return;
             }
         }
 
         // sensible fallback search logic, if none was explicitly given
         if ($column['tableColumn']) {
+            $searchOperator = config('backpack.operations.list.searchOperator', 'like');
+
             switch ($columnType) {
                 case 'email':
                 case 'text':
                 case 'textarea':
-                    $query->orWhere($this->getColumnWithTableNamePrefixed($query, $column['name']), 'like', '%'.$searchTerm.'%');
+                    $query->orWhere($this->getColumnWithTableNamePrefixed($query, $column['name']), $searchOperator, '%'.$searchTerm.'%');
                     break;
 
                 case 'date':
@@ -81,15 +84,65 @@ trait Search
 
                 case 'select':
                 case 'select_multiple':
-                    $query->orWhereHas($column['entity'], function ($q) use ($column, $searchTerm) {
-                        $q->where($this->getColumnWithTableNamePrefixed($q, $column['attribute']), 'like', '%'.$searchTerm.'%');
+                    $query->orWhereHas($column['entity'], function ($q) use ($column, $searchTerm, $searchOperator) {
+                        $q->where($this->getColumnWithTableNamePrefixed($q, $column['attribute']), $searchOperator, '%'.$searchTerm.'%');
                     });
                     break;
 
                 default:
-                    return;
                     break;
             }
+        }
+    }
+
+    /**
+     * Apply the datatables order to the crud query.
+     */
+    public function applyDatatableOrder()
+    {
+        if ($this->getRequest()->input('order')) {
+            // clear any past orderBy rules
+            $this->query->getQuery()->orders = null;
+            foreach ((array) $this->getRequest()->input('order') as $order) {
+                $column_number = (int) $order['column'];
+                $column_direction = (strtolower((string) $order['dir']) == 'asc' ? 'ASC' : 'DESC');
+                $column = $this->findColumnById($column_number);
+
+                if ($column['tableColumn'] && ! isset($column['orderLogic'])) {
+                    if (method_exists($this->model, 'translationEnabled') &&
+                        $this->model->translationEnabled() &&
+                        $this->model->isTranslatableAttribute($column['name']) &&
+                        $this->isJsonColumnType($column['name'])
+                    ) {
+                        $this->orderByWithPrefix($column['name'].'->'.app()->getLocale(), $column_direction);
+                    } else {
+                        $this->orderByWithPrefix($column['name'], $column_direction);
+                    }
+                }
+
+                // check for custom order logic in the column definition
+                if (isset($column['orderLogic'])) {
+                    $this->customOrderBy($column, $column_direction);
+                }
+            }
+        }
+
+        // show newest items first, by default (if no order has been set for the primary column)
+        // if there was no order set, this will be the only one
+        // if there was an order set, this will be the last one (after all others were applied)
+        // Note to self: `toBase()` returns also the orders contained in global scopes, while `getQuery()` don't.
+        $orderBy = $this->query->toBase()->orders;
+        $table = $this->model->getTable();
+        $key = $this->model->getKeyName();
+        $groupBy = $this->query->toBase()->groups;
+
+        $hasOrderByPrimaryKey = collect($orderBy)->some(function ($item) use ($key, $table) {
+            return (isset($item['column']) && $item['column'] === $key)
+                || (isset($item['sql']) && str_contains($item['sql'], "$table.$key"));
+        });
+
+        if (! $hasOrderByPrimaryKey && empty($groupBy)) {
+            $this->orderByWithPrefix($key, 'DESC');
         }
     }
 
@@ -212,21 +265,35 @@ trait Search
 
         // add the buttons as the last column
         if ($this->buttons()->where('stack', 'line')->count()) {
+            $crudTableId = request()->input('datatable_id', 'crudTable');
+
             $row_items[] = \View::make('crud::inc.button_stack', ['stack' => 'line'])
                                 ->with('crud', $this)
                                 ->with('entry', $entry)
                                 ->with('row_number', $rowNumber)
+                                ->with('crudTableId', $crudTableId)
                                 ->render();
         }
 
-        // add the details_row button to the first column
-        if ($this->getOperationSetting('detailsRow')) {
+        // add the bulk actions checkbox to the first column - but only if we have columns
+        if ($this->getOperationSetting('bulkActions') && ! empty($row_items)) {
+            $bulk_actions_checkbox = \View::make('crud::columns.inc.bulk_actions_checkbox', ['entry' => $entry])->render();
+            $row_items[0] = $bulk_actions_checkbox.$row_items[0];
+        }
+
+        // add the details_row button to the first column - but only if we have columns
+        if ($this->getOperationSetting('detailsRow') && ! empty($row_items)) {
             $details_row_button = \View::make('crud::columns.inc.details_row_button')
                                            ->with('crud', $this)
                                            ->with('entry', $entry)
                                            ->with('row_number', $rowNumber)
                                            ->render();
             $row_items[0] = $details_row_button.$row_items[0];
+        }
+
+        if ($this->getResponsiveTable() && ! empty($row_items)) {
+            $responsiveTableTrigger = '<div class="dtr-control d-none cursor-pointer"></div>';
+            $row_items[0] = $responsiveTableTrigger.$row_items[0];
         }
 
         return $row_items;
@@ -259,17 +326,40 @@ trait Search
         }
 
         if (isset($column['type'])) {
-            // if the column has been overwritten return that one
-            if (view()->exists('vendor.backpack.crud.columns.'.$column['type'])) {
-                return 'vendor.backpack.crud.columns.'.$column['type'];
+            // create a list of paths to column blade views
+            // including the configured view_namespaces
+            $columnPaths = array_map(function ($item) use ($column) {
+                return $item.'.'.$column['type'];
+            }, ViewNamespaces::getFor('columns'));
+
+            // but always fall back to the stock 'text' column
+            // if a view doesn't exist
+            if (! in_array('crud::columns.text', $columnPaths)) {
+                $columnPaths[] = 'crud::columns.text';
             }
 
-            // return the column from the package
-            return 'crud::columns.'.$column['type'];
+            // return the first column blade file that exists
+            foreach ($columnPaths as $path) {
+                if (view()->exists($path)) {
+                    return $path;
+                }
+            }
         }
 
         // fallback to text column
         return 'crud::columns.text';
+    }
+
+    /**
+     * Return the column view HTML.
+     *
+     * @param  array  $column
+     * @param  object  $entry
+     * @return string
+     */
+    public function getTableCellHtml($column, $entry)
+    {
+        return $this->renderCellView($this->getCellViewName($column), $column, $entry);
     }
 
     /**
@@ -308,16 +398,18 @@ trait Search
     {
         $rows = [];
 
-        foreach ($entries as $row) {
+        foreach ($entries as $index => $row) {
             $rows[] = $this->getRowViews($row, $startIndex === false ? false : ++$startIndex);
         }
 
-        return [
-            'draw'            => (isset($this->getRequest()['draw']) ? (int) $this->getRequest()['draw'] : 0),
-            'recordsTotal'    => $totalRows,
+        $result = [
+            'draw' => (isset($this->getRequest()['draw']) ? (int) $this->getRequest()['draw'] : 0),
+            'recordsTotal' => $totalRows,
             'recordsFiltered' => $filteredRows,
-            'data'            => $rows,
+            'data' => $rows,
         ];
+
+        return $result;
     }
 
     /**
@@ -330,5 +422,10 @@ trait Search
     public function getColumnWithTableNamePrefixed($query, $column)
     {
         return $query->getModel()->getTable().'.'.$column;
+    }
+
+    private function isJsonColumnType(string $columnName)
+    {
+        return $this->model->getDbTableSchema()->getColumnType($columnName) === 'json';
     }
 }

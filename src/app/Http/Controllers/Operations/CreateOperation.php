@@ -2,6 +2,7 @@
 
 namespace Backpack\CRUD\app\Http\Controllers\Operations;
 
+use Backpack\CRUD\app\Library\CrudPanel\Hooks\Facades\LifecycleHook;
 use Illuminate\Support\Facades\Route;
 
 trait CreateOperation
@@ -16,14 +17,14 @@ trait CreateOperation
     protected function setupCreateRoutes($segment, $routeName, $controller)
     {
         Route::get($segment.'/create', [
-            'as'        => $routeName.'.create',
-            'uses'      => $controller.'@create',
+            'as' => $routeName.'.create',
+            'uses' => $controller.'@create',
             'operation' => 'create',
         ]);
 
         Route::post($segment, [
-            'as'        => $routeName.'.store',
-            'uses'      => $controller.'@store',
+            'as' => $routeName.'.store',
+            'uses' => $controller.'@store',
             'operation' => 'create',
         ]);
     }
@@ -35,12 +36,12 @@ trait CreateOperation
     {
         $this->crud->allowAccess('create');
 
-        $this->crud->operation('create', function () {
+        LifecycleHook::hookInto('create:before_setup', function () {
             $this->crud->loadDefaultOperationSettingsFromConfig();
             $this->crud->setupDefaultSaveActions();
         });
 
-        $this->crud->operation('list', function () {
+        LifecycleHook::hookInto('list:before_setup', function () {
             $this->crud->addButton('top', 'create', 'view', 'crud::buttons.create');
         });
     }
@@ -75,8 +76,11 @@ trait CreateOperation
         // execute the FormRequest authorization and validation, if one is required
         $request = $this->crud->validateRequest();
 
+        // register any Model Events defined on fields
+        $this->crud->registerFieldEvents();
+
         // insert item in the db
-        $item = $this->crud->create($this->crud->getStrippedSaveRequest());
+        $item = $this->crud->create($this->crud->getStrippedSaveRequest($request));
         $this->data['entry'] = $this->crud->entry = $item;
 
         // show a success message

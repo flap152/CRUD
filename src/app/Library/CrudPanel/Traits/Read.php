@@ -2,7 +2,10 @@
 
 namespace Backpack\CRUD\app\Library\CrudPanel\Traits;
 
+use Backpack\CRUD\app\Exceptions\BackpackProRequiredException;
 use Exception;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 
 /**
  * Properties and methods used by the List operation.
@@ -12,7 +15,7 @@ trait Read
     /**
      * Find and retrieve the id of the current entry.
      *
-     * @return int|bool The id in the db or false.
+     * @return int|string|bool The id in the db or false.
      */
     public function getCurrentEntryId()
     {
@@ -20,10 +23,10 @@ trait Read
             return $this->entry->getKey();
         }
 
-        $params = \Route::current()->parameters();
+        $params = Route::current()?->parameters() ?? [];
 
         return  // use the entity name to get the current entry
-                // this makes sure the ID is corrent even for nested resources
+                // this makes sure the ID is current even for nested resources
                 $this->getRequest()->input($this->entity_name) ??
                 // otherwise use the next to last parameter
                 array_values($params)[count($params) - 1] ??
@@ -41,11 +44,21 @@ trait Read
         $id = $this->getCurrentEntryId();
 
         if ($id === false) {
-            return null;
             return false;
         }
 
         return $this->getEntry($id);
+    }
+
+    public function getCurrentEntryWithLocale()
+    {
+        $entry = $this->getCurrentEntry();
+
+        if (! $entry) {
+            return false;
+        }
+
+        return $this->setLocaleOnModel($entry);
     }
 
     /**
@@ -57,11 +70,59 @@ trait Read
     public function getEntry($id)
     {
         if (! $this->entry) {
-            $this->entry = $this->model->findOrFail($id);
+            if ($this->getOperationSetting('eagerLoadRelationships')) {
+                $this->eagerLoadRelationshipFields();
+            }
+
+            $modelWithQuery = $this->getModelWithCrudPanelQuery();
+
+            $this->entry = $modelWithQuery->findOrFail($id);
             $this->entry = $this->entry->withFakes();
         }
 
         return $this->entry;
+    }
+
+    private function shouldUseFallbackLocale(): bool|string
+    {
+        $fallbackRequestValue = $this->getRequest()->get('_fallback_locale');
+
+        return $fallbackRequestValue === 'true' ? true : (in_array($fallbackRequestValue, array_keys(config('backpack.crud.locales'))) ? $fallbackRequestValue : false);
+    }
+
+    /**
+     * Find and retrieve an entry in the database or fail.
+     * When found, make sure we set the Locale on it.
+     *
+     * @param int The id of the row in the db to fetch.
+     * @return \Illuminate\Database\Eloquent\Model The row in the db.
+     */
+    public function getEntryWithLocale($id)
+    {
+        if (! $this->entry) {
+            $this->entry = $this->getEntry($id);
+        }
+
+        return $this->setLocaleOnModel($this->entry);
+    }
+
+    /**
+     * Return a Model builder instance with the current crud query applied.
+     *
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function getModelWithCrudPanelQuery()
+    {
+        $newBuilder = $this->model->setQuery($this->query->getQuery());
+
+        // Remove global scopes that were removed from the original query
+        $removedScopes = $this->query->removedScopes();
+
+        if ($removedScopes) {
+            $newBuilder->withoutGlobalScopes($removedScopes);
+        }
+
+        return $newBuilder;
     }
 
     /**
@@ -72,7 +133,7 @@ trait Read
      */
     public function getEntryWithoutFakes($id)
     {
-        return $this->model->findOrFail($id);
+        return $this->getModelWithCrudPanelQuery()->findOrFail($id);
     }
 
     /**
@@ -81,25 +142,60 @@ trait Read
      */
     public function autoEagerLoadRelationshipColumns()
     {
-        $relationships = $this->getColumnsRelationships();
+        $this->with($this->getRelationshipsFromCrudObjects('columns'));
+    }
 
-        foreach ($relationships as $relation) {
-            if (strpos($relation, '.') !== false) {
-                $parts = explode('.', $relation);
-                $model = $this->model;
+    public function eagerLoadRelationshipFields()
+    {
+        $this->with($this->getRelationshipsFromCrudObjects('fields'));
+    }
 
-                // Iterate over each relation part to find the valid relations without attributes
-                // We should eager load the relation but not the attribute
-                foreach ($parts as $i => $part) {
-                    try {
-                        $model = $model->$part()->getRelated();
-                    } catch (Exception $e) {
-                        $relation = join('.', array_slice($parts, 0, $i));
-                    }
+    private function getRelationshipsFromCrudObjects(string $crudObjectType): array
+    {
+        $crudObjects = $this->{$crudObjectType}();
+
+        $relationStrings = [];
+
+        foreach ($crudObjects as $crudObjectName => $attributes) {
+            $relationString = isset($attributes['entity']) && $attributes['entity'] !== false ? $attributes['entity'] : '';
+
+            if (! $relationString) {
+                continue;
+            }
+
+            if (strpos($attributes['entity'], '.') === false) {
+                $relationStrings[] = $relationString;
+            }
+
+            $relationAttribute = $attributes['attribute'] ?? null;
+
+            if ($relationAttribute) {
+                $relationString = Str::endsWith($relationString, $relationAttribute) ? Str::beforeLast($relationString, '.') : $relationString;
+
+                $relationStrings[] = $relationString;
+
+                continue;
+            }
+
+            $parts = explode('.', $relationString);
+            $model = $this->model;
+
+            // Iterate over each relation part to find the valid relations without attributes
+            // We should eager load the relation but not the attribute
+            foreach ($parts as $i => $part) {
+                try {
+                    $model = $model->$part()->getRelated();
+                } catch (Exception $e) {
+                    $relationString = implode('.', array_slice($parts, 0, $i));
                 }
             }
-            $this->with($relation);
+
+            $relationStrings[] = $relationString;
+
+            continue;
         }
+
+        return array_unique($relationStrings);
     }
 
     /**
@@ -129,6 +225,10 @@ trait Read
      */
     public function enableDetailsRow()
     {
+        if (! backpack_pro()) {
+            throw new BackpackProRequiredException('Details row');
+        }
+
         $this->setOperationSetting('detailsRow', true);
     }
 
@@ -141,46 +241,14 @@ trait Read
     }
 
     /**
-     * Add two more columns at the beginning of the ListEntrie table:
+     * Add two more columns at the beginning of the ListEntries table:
      * - one shows the checkboxes needed for bulk actions
      * - one is blank, in order for evenual detailsRow or expand buttons
      * to be in a separate column.
      */
     public function enableBulkActions()
     {
-        if ($this->getOperationSetting('bulkActions') == true) {
-            return;
-        }
-
         $this->setOperationSetting('bulkActions', true);
-
-        $this->addColumn([
-            'type'            => 'checkbox',
-            'name'            => 'bulk_actions',
-            'label'           => ' <input type="checkbox" class="crud_bulk_actions_main_checkbox" style="width: 16px; height: 16px;" />',
-            'priority'        => 0,
-            'searchLogic'     => false,
-            'orderable'       => false,
-            'visibleInTable'  => true,
-            'visibleInModal'  => false,
-            'visibleInExport' => false,
-            'visibleInShow'   => false,
-            'hasActions'      => true,
-        ])->makeFirstColumn();
-
-        $this->addColumn([
-            'type'            => 'custom_html',
-            'name'            => 'blank_first_column',
-            'label'           => ' ',
-            'priority'        => 0,
-            'searchLogic'     => false,
-            'orderable'       => false,
-            'visibleInTabel'  => true,
-            'visibleInModal'  => false,
-            'visibleInExport' => false,
-            'visibleInShow'   => false,
-            'hasActions'      => true,
-        ])->makeFirstColumn();
     }
 
     /**
@@ -191,7 +259,6 @@ trait Read
         $this->setOperationSetting('bulkActions', false);
 
         $this->removeColumn('bulk_actions');
-        $this->removeColumn('blank_first_column');
     }
 
     /**
@@ -220,8 +287,14 @@ trait Read
      */
     public function addCustomPageLengthToPageLengthMenu()
     {
-        $values = $this->getOperationSetting('pageLengthMenu')[0];
-        $labels = $this->getOperationSetting('pageLengthMenu')[1];
+        $pageLengthMenu = $this->getOperationSetting('pageLengthMenu');
+
+        if (is_null($pageLengthMenu)) {
+            return;
+        }
+
+        $values = $pageLengthMenu[0];
+        $labels = $pageLengthMenu[1];
 
         if (array_search($this->getDefaultPageLength(), $values) === false) {
             for ($i = 0; $i < count($values); $i++) {
@@ -330,7 +403,7 @@ trait Read
     private function abortIfInvalidPageLength($value)
     {
         if ($value === 0 || (is_array($value) && in_array(0, $value))) {
-            abort(500, 'You should not use 0 as a key in paginator. If you are looking for "ALL" option, use -1 instead.');
+            abort(500, 'You should not use 0 as a key in paginator. If you are looking for "ALL" option, use -1 instead.', ['developer-error-exception']);
         }
     }
 
@@ -345,7 +418,13 @@ trait Read
      */
     public function enableExportButtons()
     {
+        if (! backpack_pro()) {
+            throw new BackpackProRequiredException('Export buttons');
+        }
+
         $this->setOperationSetting('exportButtons', true);
+        $this->setOperationSetting('showTableColumnPicker', true);
+        $this->setOperationSetting('showExportButton', true);
     }
 
     /**

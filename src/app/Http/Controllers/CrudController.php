@@ -20,9 +20,9 @@ class CrudController extends Controller
 
     public function __construct()
     {
-        if ($this->crud) {
-            return;
-        }
+//        if ($this->crud) {
+//            return;
+//        }
 
         // ---------------------------
         // Create the CrudPanel object
@@ -48,7 +48,7 @@ class CrudController extends Controller
             // Reset the CrudPanel if it was already initialized (re-entrant request)
             // This prevents state leaking between requests in browser tests
             if ($this->crud->isInitialized()) {
-                $this->crud->reset();
+//                $this->crud->reset();
             }
 
             $this->crud->setRequest($request);

@@ -2,6 +2,8 @@
 
 namespace Backpack\CRUD\app\Http\Controllers\Operations;
 
+use Backpack\CRUD\app\Library\CrudPanel\Hooks\Facades\LifecycleHook;
+use Backpack\CRUD\app\Library\Support\DatatableCache;
 use Illuminate\Support\Facades\Route;
 
 trait ListOperation
@@ -16,22 +18,24 @@ trait ListOperation
     protected function setupListRoutes($segment, $routeName, $controller)
     {
         Route::get($segment.'/', [
-            'as'        => $routeName.'.index',
-            'uses'      => $controller.'@index',
+            'as' => $routeName.'.index',
+            'uses' => $controller.'@index',
             'operation' => 'list',
         ]);
 
         Route::post($segment.'/search', [
-            'as'        => $routeName.'.search',
-            'uses'      => $controller.'@search',
+            'as' => $routeName.'.search',
+            'uses' => $controller.'@search',
             'operation' => 'list',
         ]);
 
-        Route::get($segment.'/{id}/details', [
-            'as'        => $routeName.'.showDetailsRow',
-            'uses'      => $controller.'@showDetailsRow',
-            'operation' => 'list',
-        ]);
+        if (! isset($this->setupDetailsRowRoute) || $this->setupDetailsRowRoute === true) {
+            Route::get($segment.'/{id}/details', [
+                'as' => $routeName.'.showDetailsRow',
+                'uses' => $controller.'@showDetailsRow',
+                'operation' => 'list',
+            ]);
+        }
     }
 
     /**
@@ -41,15 +45,16 @@ trait ListOperation
     {
         $this->crud->allowAccess('list');
 
-        $this->crud->operation('list', function () {
+        LifecycleHook::hookInto('list:before_setup', function () {
             $this->crud->loadDefaultOperationSettingsFromConfig();
+            $this->crud->setOperationSetting('datatablesUrl', $this->crud->getRoute());
         });
     }
 
     /**
      * Display all rows in the database for this entity.
      *
-     * @return \Illuminate\View\View
+     * @return \Illuminate\Contracts\View\View
      */
     public function index()
     {
@@ -57,6 +62,7 @@ trait ListOperation
 
         $this->data['crud'] = $this->crud;
         $this->data['title'] = $this->crud->getTitle() ?? mb_ucfirst($this->crud->entity_name_plural);
+        $this->data['controller'] = get_class($this);
 
         // load the view from /resources/views/vendor/backpack/crud/ if it exists, otherwise load the one in the package
         return view($this->crud->getListView(), $this->data);
@@ -71,73 +77,63 @@ trait ListOperation
     {
         $this->crud->hasAccessOrFail('list');
 
+        // If there's a config closure in the cache for this CRUD, run that configuration closure.
+        // This is done in order to allow the developer to configure the datatable component.
+        DatatableCache::applyFromRequest($this->crud);
+
         $this->crud->applyUnappliedFilters();
 
-        $totalRows = $this->crud->model->count();
-        $filteredRows = $this->crud->query->toBase()->getCountForPagination();
-        $startIndex = request()->input('start') ?: 0;
+        $start = (int) request()->input('start');
+        $length = (int) request()->input('length');
+        $search = request()->input('search');
+
+        // check if length is allowed by developer
+//        if ($length && ! in_array($length, $this->crud->getPageLengthMenu()[0] ?? [])) {
+        if ($length && ! in_array($length, $this->crud->getPageLengthMenu()[0] )) {
+            return response()->json([
+                'error' => 'Unknown page length.',
+            ], 400);
+        }
+
         // if a search term was present
-        if (request()->input('search') && request()->input('search')['value']) {
+        if ($search && $search['value'] ?? false) {
             // filter the results accordingly
-            $this->crud->applySearchTerm(request()->input('search')['value']);
-            // recalculate the number of filtered rows
-            $filteredRows = $this->crud->count();
+            $this->crud->applySearchTerm($search['value']);
         }
         // start the results according to the datatables pagination
-        if (request()->input('start')) {
-            $this->crud->skip((int) request()->input('start'));
+        if ($start) {
+            $this->crud->skip($start);
         }
         // limit the number of results according to the datatables pagination
-        if (request()->input('length')) {
-            $this->crud->take((int) request()->input('length'));
+        if ($length) {
+            $this->crud->take($length);
         }
         // overwrite any order set in the setup() method with the datatables order
-        if (request()->input('order')) {
-            // clear any past orderBy rules
-            $this->crud->query->getQuery()->orders = null;
-            foreach ((array) request()->input('order') as $order) {
-                $column_number = (int) $order['column'];
-                $column_direction = (strtolower((string) $order['dir']) == 'asc' ? 'ASC' : 'DESC');
-                $column = $this->crud->findColumnById($column_number);
-                if ($column['tableColumn'] && ! isset($column['orderLogic'])) {
-                    // apply the current orderBy rules
-                    $this->crud->orderByWithPrefix($column['name'], $column_direction);
-                }
-
-                // check for custom order logic in the column definition
-                if (isset($column['orderLogic'])) {
-                    $this->crud->customOrderBy($column, $column_direction);
-                }
-            }
-        }
-
-        // show newest items first, by default (if no order has been set for the primary column)
-        // if there was no order set, this will be the only one
-        // if there was an order set, this will be the last one (after all others were applied)
-        // Note to self: `toBase()` returns also the orders contained in global scopes, while `getQuery()` don't.
-        $orderBy = $this->crud->query->toBase()->orders;
-        $table = $this->crud->model->getTable();
-        $key = $this->crud->model->getKeyName();
-
-        $hasOrderByPrimaryKey = collect($orderBy)->some(function ($item) use ($key, $table) {
-            return (isset($item['column']) && $item['column'] === $key)
-                || (isset($item['sql']) && str_contains($item['sql'], "$table.$key"));
-        });
-
-        if (! $hasOrderByPrimaryKey) {
-            $this->crud->orderByWithPrefix($this->crud->model->getKeyName(), 'DESC');
-        }
+        $this->crud->applyDatatableOrder();
 
         $entries = $this->crud->getEntries();
+        $requestTotalEntryCount = request()->get('totalEntryCount') ? (int) request()->get('totalEntryCount') : null;
+        // if show entry count is disabled we use the "simplePagination" technique to move between pages.
+        if ($this->crud->getOperationSetting('showEntryCount')) {
+            $totalEntryCount = (int) ($requestTotalEntryCount ?: $this->crud->getTotalQueryCount());
+            $filteredEntryCount = $this->crud->getFilteredQueryCount() ?? $totalEntryCount;
+        } else {
+            $totalEntryCount = $length;
+            $entryCount = $entries->count();
+            $filteredEntryCount = $entryCount < $length ? $entryCount : $length + $start + 1;
+        }
 
-        return $this->crud->getEntriesAsJsonForDatatables($entries, $totalRows, $filteredRows, $startIndex);
+        // store the totalEntryCount in CrudPanel so that multiple blade files can access it
+        $this->crud->setOperationSetting('totalEntryCount', $totalEntryCount);
+
+        return $this->crud->getEntriesAsJsonForDatatables($entries, $totalEntryCount, $filteredEntryCount, $start);
     }
 
     /**
      * Used with AJAX in the list view (datatables) to show extra information about that row that didn't fit in the table.
      * It defaults to showing some dummy text.
      *
-     * @return \Illuminate\View\View
+     * @return \Illuminate\Contracts\View\View
      */
     public function showDetailsRow($id)
     {

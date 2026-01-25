@@ -41,9 +41,9 @@ trait Columns
                     $this->addColumn($column);
                 } else {
                     $this->addColumn([
-                        'name'  => $column,
+                        'name' => $column,
                         'label' => mb_ucfirst($column),
-                        'type'  => 'text',
+                        'type' => 'text',
                     ]);
                 }
             }
@@ -51,9 +51,9 @@ trait Columns
 
         if (is_string($columns)) {
             $this->addColumn([
-                'name'  => $columns,
+                'name' => $columns,
                 'label' => mb_ucfirst($columns),
-                'type'  => 'text',
+                'type' => 'text',
             ]);
         }
     }
@@ -66,10 +66,19 @@ trait Columns
      */
     public function addColumn($column)
     {
-        $column = $this->makeSureColumnHasNeededAttributes($column);
-        $this->addColumnToOperationSettings($column);
+        $this->prepareAttributesAndAddColumn($column);
 
         return $this;
+    }
+
+    /**
+     * Add a column at the end of the CRUD object's "columns" array and return it.
+     */
+    public function addAndReturnColumn(array|string $column): CrudColumn
+    {
+        $column = $this->prepareAttributesAndAddColumn($column);
+
+        return $column;
     }
 
     /**
@@ -107,9 +116,9 @@ trait Columns
     }
 
     /**
-     * Move this column to be first in the columns list.
+     * Move the most recently added column to the first column.
      *
-     * @return bool|null
+     * @return bool|void
      */
     public function makeFirstColumn()
     {
@@ -249,11 +258,7 @@ trait Columns
      */
     public function getColumnsRelationships()
     {
-        $columns = $this->columns();
-
-        return collect($columns)->pluck('entity')->reject(function ($value, $key) {
-            return ! $value;
-        })->toArray();
+        return $this->getRelationshipsFromCrudObjects('columns');
     }
 
     /**
@@ -281,6 +286,7 @@ trait Columns
 
     /**
      * Get a column by the id, from the associative array.
+     * The array is 0-indexed, so the first column has id 0.
      *
      * @param  int  $column_number  Placement inside the columns array.
      * @return array Column details.
@@ -300,7 +306,11 @@ trait Columns
      */
     public function getActionsColumnPriority()
     {
-        return (int) $this->getOperationSetting('actionsColumnPriority') ?? 1;
+        if ($this->getOperationSetting('actionsColumnPriority') === null) {
+            return 1;
+        }
+
+        return (int) $this->getOperationSetting('actionsColumnPriority');
     }
 
     /**
@@ -361,15 +371,14 @@ trait Columns
     {
         $column = $this->makeSureColumnHasName($column);
         $column = $this->makeSureColumnHasKey($column);
-        $column = $this->makeSureColumnHasLabel($column);
         $column = $this->makeSureColumnHasEntity($column);
+        $column = $this->makeSureColumnHasLabel($column);
+        $column = $this->makeSureColumnHasModel($column);
+        $column = $this->makeSureColumnHasAttribute($column);
+        $column = $this->makeSureColumnHasRelationType($column);
         $column = $this->makeSureColumnHasType($column);
         $column = $this->makeSureColumnHasPriority($column);
-        $column = $this->makeSureColumnHasModel($column);
-
-        if (isset($column['entity']) && $column['entity'] !== false) {
-            $column['relation_type'] = $this->inferRelationTypeFromRelationship($column);
-        }
+        $column = $this->makeSureSubfieldsHaveNecessaryAttributes($column);
 
         // check if the column exists in the database (as a db column)
         $column_exists_in_db = $this->hasDatabaseColumn($this->model->getTable(), $column['name']);
@@ -404,15 +413,16 @@ trait Columns
      * in addition to the existing options:
      * - CRUD::addColumn(['name' => 'price', 'type' => 'number']);
      * - CRUD::column('price')->type('number');
+     * - CRUD::column(['name' => 'price', 'type' => 'number']);
      *
      * And if the developer uses the CrudColumn object as Column in their CrudController:
      * - Column::name('price')->type('number');
      *
-     * @param  string  $name  The name of the column in the db, or model attribute.
+     * @param  string|array  $name  The name of the column in the db, or model attribute.
      * @return CrudColumn
      */
-    public function column($name)
+    public function column($nameOrDefinition)
     {
-        return new CrudColumn($name);
+        return new CrudColumn($nameOrDefinition);
     }
 }

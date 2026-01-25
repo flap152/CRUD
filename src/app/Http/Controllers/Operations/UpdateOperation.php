@@ -2,6 +2,7 @@
 
 namespace Backpack\CRUD\app\Http\Controllers\Operations;
 
+use Backpack\CRUD\app\Library\CrudPanel\Hooks\Facades\LifecycleHook;
 use Illuminate\Support\Facades\Route;
 
 trait UpdateOperation
@@ -16,14 +17,14 @@ trait UpdateOperation
     protected function setupUpdateRoutes($segment, $routeName, $controller)
     {
         Route::get($segment.'/{id}/edit', [
-            'as'        => $routeName.'.edit',
-            'uses'      => $controller.'@edit',
+            'as' => $routeName.'.edit',
+            'uses' => $controller.'@edit',
             'operation' => 'update',
         ]);
 
         Route::put($segment.'/{id}', [
-            'as'        => $routeName.'.update',
-            'uses'      => $controller.'@update',
+            'as' => $routeName.'.update',
+            'uses' => $controller.'@update',
             'operation' => 'update',
         ]);
     }
@@ -35,21 +36,21 @@ trait UpdateOperation
     {
         $this->crud->allowAccess('update');
 
-        $this->crud->operation('update', function () {
+        LifecycleHook::hookInto('update:before_setup', function () {
             $this->crud->loadDefaultOperationSettingsFromConfig();
 
             if ($this->crud->getModel()->translationEnabled()) {
                 $this->crud->addField([
-                    'name' => 'locale',
+                    'name' => '_locale',
                     'type' => 'hidden',
-                    'value' => request()->input('locale') ?? app()->getLocale(),
+                    'value' => request()->input('_locale') ?? app()->getLocale(),
                 ]);
             }
 
             $this->crud->setupDefaultSaveActions();
         });
 
-        $this->crud->operation(['list', 'show'], function () {
+        LifecycleHook::hookInto(['list:before_setup', 'show:before_setup'], function () {
             $this->crud->addButton('line', 'update', 'view', 'crud::buttons.update', 'end');
         });
     }
@@ -63,15 +64,21 @@ trait UpdateOperation
     public function edit($id)
     {
         $this->crud->hasAccessOrFail('update');
+
         // get entry ID from Request (makes sure its the last ID for nested resources)
         $id = $this->crud->getCurrentEntryId() ?? $id;
-        $this->crud->setOperationSetting('fields', $this->crud->getUpdateFields());
+
+        // register any Model Events defined on fields
+        $this->crud->registerFieldEvents();
+
         // get the info for that entry
-        $this->data['entry'] = $this->crud->getEntry($id);
+        $this->data['entry'] = $this->crud->getEntryWithLocale($id);
+
+        $this->crud->setOperationSetting('fields', $this->crud->getUpdateFields());
+
         $this->data['crud'] = $this->crud;
         $this->data['saveAction'] = $this->crud->getSaveAction();
         $this->data['title'] = $this->crud->getTitle() ?? trans('backpack::crud.edit').' '.$this->crud->entity_name;
-
         $this->data['id'] = $id;
 
         // load the view from /resources/views/vendor/backpack/crud/ if it exists, otherwise load the one in the package
@@ -81,7 +88,7 @@ trait UpdateOperation
     /**
      * Update the specified resource in the database.
      *
-     * @return \Illuminate\Http\Response
+     * @return \Illuminate\Http\JsonResponse|\Illuminate\Http\RedirectResponse
      */
     public function update()
     {
@@ -89,9 +96,15 @@ trait UpdateOperation
 
         // execute the FormRequest authorization and validation, if one is required
         $request = $this->crud->validateRequest();
+
+        // register any Model Events defined on fields
+        $this->crud->registerFieldEvents();
+
         // update the row in the db
-        $item = $this->crud->update($request->get($this->crud->model->getKeyName()),
-                            $this->crud->getStrippedSaveRequest());
+        $item = $this->crud->update(
+            $request->get($this->crud->model->getKeyName()),
+            $this->crud->getStrippedSaveRequest($request)
+        );
         $this->data['entry'] = $this->crud->entry = $item;
 
         // show a success message

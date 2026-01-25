@@ -1,5 +1,8 @@
 <?php
 
+use Backpack\Basset\Facades\Basset;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 if (! function_exists('backpack_url')) {
     /**
      * Appends the configured backpack prefix and returns
@@ -65,6 +68,13 @@ if (! function_exists('backpack_form_input')) {
                 continue;
             }
 
+            $isMultiple = substr($row['name'], -2, 2) === '[]';
+
+            if ($isMultiple && substr_count($row['name'], '[') === 1) {
+                $result[substr($row['name'], 0, -2)][] = $row['value'];
+                continue;
+            }
+
             // dot notation fields
             if (substr_count($row['name'], '[') === 1) {
                 // start in the first occurence since it's HasOne/MorphOne with dot notation (address[street] in request) to get the input name (address)
@@ -87,11 +97,20 @@ if (! function_exists('backpack_form_input')) {
             $parentInputName = substr($row['name'], 0, strpos($row['name'], '['));
 
             if (isset($repeatableRowKey)) {
+                if ($isMultiple) {
+                    $result[$parentInputName][$repeatableRowKey][$inputName][] = $row['value'];
+                    continue;
+                }
+
                 $result[$parentInputName][$repeatableRowKey][$inputName] = $row['value'];
 
                 continue;
             }
 
+            if ($isMultiple) {
+                $result[$parentInputName][$inputName][] = $row['value'];
+                continue;
+            }
             $result[$parentInputName][$inputName] = $row['value'];
         }
 
@@ -196,7 +215,7 @@ if (! function_exists('mb_ucfirst')) {
      */
     function mb_ucfirst($string, $encoding = false)
     {
-        $string = $string ?? '';
+//        $string = $string ?? '';
         $encoding = $encoding ? $encoding : mb_internal_encoding();
 
         $strlen = mb_strlen($string, $encoding);
@@ -215,7 +234,7 @@ if (! function_exists('backpack_view')) {
      * @param string (see config/backpack/base.php)
      * @return string
      */
-    function backpack_view($view)
+    function backpack_viewXX($view)
     {
         $originalTheme = 'backpack::';
         $theme = config('backpack.base.view_namespace');
@@ -232,8 +251,79 @@ if (! function_exists('backpack_view')) {
 
         return $returnView;
     }
+
+
+    function backpack_view($view)
+    {
+        $viewPaths = [
+            config('backpack.ui.view_namespace').$view,
+            backpack_theme_config('view_namespace_fallback').$view,
+            'backpack.ui::'.$view,
+        ];
+
+        foreach ($viewPaths as $view) {
+            if (view()->exists($view)) {
+                return $view;
+            }
+        }
+
+        $errorMessage = 'The view: ['.$view.'] was not found in any of the following view paths: ['.implode(' ], [ ', $viewPaths).']';
+
+        $errorDetails = (function () {
+            if (env('APP_ENV') === 'production' || ! env('APP_DEBUG')) {
+                return '';
+            }
+
+            $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2) ?? [];
+            $functionCaller = $backtrace[1] ?? [];
+            $functionLine = $functionCaller['line'] ?? 'N/A';
+            $functionFile = $functionCaller['file'] ?? 'N/A';
+
+            return '- Called in: '.Str::after($functionFile, base_path()).' on line: '.$functionLine;
+        })();
+
+        abort(500, $errorMessage.$errorDetails, ['developer-error-exception']);
+    }
 }
 
+if (! function_exists('backpack_theme_config')) {
+    /**
+     * Returns a config value from the current theme's config file.
+     * It assumes the theme's config namespace is the same as the view namespace.
+     *
+     * @param string
+     * @return string
+     */
+    function backpack_theme_config($key)
+    {
+        $namespacedKey = config('backpack.ui.view_namespace').$key;
+        $namespacedKey = str_replace('::', '.', $namespacedKey);
+
+        // if the config exists in the theme config file, use it
+        if (config()->has($namespacedKey)) {
+            return config($namespacedKey);
+        }
+
+        // if not, fall back to a general the config in the fallback theme
+        $namespacedKey = config('backpack.ui.view_namespace_fallback').$key;
+        $namespacedKey = str_replace('::', '.', $namespacedKey);
+
+        if (config()->has($namespacedKey)) {
+            return config($namespacedKey);
+        }
+
+        // if not, fall back to the config in ui
+        $namespacedKey = 'backpack.ui.'.$key;
+
+        if (config()->has($namespacedKey)) {
+            return config($namespacedKey);
+        }
+
+        Log::error('Could not find config key: '.$key.'. Neither in the Backpack theme, nor in the fallback theme, nor in ui.');
+
+        return null;
+    }
+}
 if (! function_exists('square_brackets_to_dots')) {
     /**
      * Turns a string from bracket-type array to dot-notation array.
@@ -263,6 +353,8 @@ if (! function_exists('old_empty_or_null')) {
      * - the second parameter, if there is no old value for that key, but it was empty string or null;
      * - null, if there is no old value at all for that key;
      *
+     * This version is form-aware to prevent old values from bleeding across multiple forms.
+     *
      * @param  string  $key
      * @param  array|string  $empty_value
      * @return mixed
@@ -272,10 +364,25 @@ if (! function_exists('old_empty_or_null')) {
         $key = square_brackets_to_dots($key);
         $old_inputs = session()->getOldInput();
 
+        // Check if we have a form ID in the old inputs to determine if this is form-specific
+        $submittedFormId = data_get($old_inputs, '_form_id');
+
+        if ($submittedFormId) {
+            // Check if we're currently rendering a DataForm with a specific ID
+            // Use Laravel's service container to get the current form context
+            $currentFormId = app()->bound('backpack.current_form_id') ? app('backpack.current_form_id') : null;
+
+            // If we can determine the current form ID and it doesn't match the submitted form ID,
+            // don't return old values to prevent bleeding across forms
+            if ($currentFormId && $currentFormId !== $submittedFormId) {
+                return null;
+            }
+        }
+
         // if the input name is present in the old inputs we need to return earlier and not in a coalescing chain
         // otherwise `null` aka empty will not pass the condition and the field value would be returned.
-        if (\Arr::has($old_inputs, $key)) {
-            return \Arr::get($old_inputs, $key) ?? $empty_value;
+        if (\Illuminate\Support\Arr::has($old_inputs, $key)) {
+            return \Illuminate\Support\Arr::get($old_inputs, $key) ?? $empty_value;
         }
 
         return null;
@@ -284,20 +391,22 @@ if (! function_exists('old_empty_or_null')) {
 
 if (! function_exists('is_multidimensional_array')) {
     /**
-     * If any of the items inside a given array is an array, the array is considered multidimensional.
+     * Check if the array is multidimensional.
      *
-     * @param  array  $array
-     * @return bool
+     * If $strict is enabled, the array is considered multidimensional only if all elements of the array are arrays.
      */
-    function is_multidimensional_array(array $array)
+    function is_multidimensional_array(array $array, bool $strict = false): bool
     {
         foreach ($array as $item) {
-            if (is_array($item)) {
+            if ($strict && ! is_array($item)) {
+                return false;
+            }
+            if (! $strict && is_array($item)) {
                 return true;
             }
         }
 
-        return false;
+        return $strict;
     }
 }
 
@@ -309,6 +418,7 @@ if (! function_exists('backpack_pro')) {
      */
     function backpack_pro()
     {
+        return true;
         if (app()->runningUnitTests()) {
             return true;
         }
