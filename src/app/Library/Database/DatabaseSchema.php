@@ -66,7 +66,25 @@ final class DatabaseSchema
      */
     private static function mapTables(string $connection)
     {
-        return LazyCollection::make(self::getCreateSchema($connection)->getTables())->mapWithKeys(function ($table, $key) use ($connection) {
+        $database = DB::connection($connection)->getDatabaseName();
+
+        return LazyCollection::make(self::getCreateSchema($connection)->getTables())
+            // Laravel 11's schema builder getTables() returns tables across ALL
+            // schemas/databases on the server. Scope to the current connection's
+            // database so we only introspect this app's tables — otherwise every
+            // other database on the server (e.g. leftover isolated test DBs in CI)
+            // gets column+index introspected, exploding to tens of thousands of
+            // queries and multi-second cold renders.
+            ->filter(function ($table) use ($database) {
+                if (! is_array($table)) {
+                    return true;
+                }
+
+                $schema = $table['schema'] ?? null;
+
+                return $schema === null || $schema === $database;
+            })
+            ->mapWithKeys(function ($table, $key) use ($connection) {
             $tableName = is_array($table) ? $table['name'] : $table->getName();
 
             if (self::$schema[$connection][$tableName] ?? false) {
