@@ -66,23 +66,31 @@ final class DatabaseSchema
      */
     private static function mapTables(string $connection)
     {
-        $database = DB::connection($connection)->getDatabaseName();
+        $currentSchema = self::getCurrentSchemaName($connection);
 
         return LazyCollection::make(self::getCreateSchema($connection)->getTables())
             // Laravel 11's schema builder getTables() returns tables across ALL
             // schemas/databases on the server. Scope to the current connection's
-            // database so we only introspect this app's tables — otherwise every
+            // schema so we only introspect this app's tables — otherwise every
             // other database on the server (e.g. leftover isolated test DBs in CI)
             // gets column+index introspected, exploding to tens of thousands of
             // queries and multi-second cold renders.
-            ->filter(function ($table) use ($database) {
+            //
+            // Compare against the connection's CURRENT SCHEMA, not its database
+            // name. On MySQL those are the same thing, which is why comparing to
+            // the database name worked. On PostgreSQL the schema is `public`
+            // while the database is e.g. `tenantnrj`, so that comparison matched
+            // nothing, every table was discarded, and setFromDb() produced a CRUD
+            // panel with zero columns and zero fields. SQLite (`main`) and SQL
+            // Server (`dbo`) fail the same way.
+            ->filter(function ($table) use ($currentSchema) {
                 if (! is_array($table)) {
                     return true;
                 }
 
                 $schema = $table['schema'] ?? null;
 
-                return $schema === null || $schema === $database;
+                return $schema === null || $currentSchema === null || $schema === $currentSchema;
             })
             ->mapWithKeys(function ($table, $key) use ($connection) {
             $tableName = is_array($table) ? $table['name'] : $table->getName();
@@ -97,6 +105,32 @@ final class DatabaseSchema
 
             return [$tableName => $table];
         })->toArray();
+    }
+
+    /**
+     * The schema that unqualified table names on this connection resolve to.
+     *
+     * Falls back to the database name so behaviour is unchanged on any
+     * connection whose builder predates getCurrentSchemaName() — on MySQL the
+     * two are identical anyway. A null result means "do not filter", which keeps
+     * a panel rendering rather than silently emptying it.
+     */
+    private static function getCurrentSchemaName(string $connection): ?string
+    {
+        $connection = DB::connection($connection);
+        $builder = $connection->getSchemaBuilder();
+
+        if (method_exists($builder, 'getCurrentSchemaName')) {
+            $schema = $builder->getCurrentSchemaName();
+
+            if (is_string($schema) && $schema !== '') {
+                return $schema;
+            }
+        }
+
+        $database = $connection->getDatabaseName();
+
+        return is_string($database) && $database !== '' ? $database : null;
     }
 
     private static function getIndexColumnNames(string $connection, string $table)
